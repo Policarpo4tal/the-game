@@ -16,6 +16,7 @@
   let estadoAventura = progresso.dados && Regras.rpgDadosValidos(progresso.dados.rpg) ? progresso.dados.rpg : null;
   let renderizador = null;
   let frameMundo = 0;
+  let frameGamepadMenu = 0;
   let tempoAnterior = 0;
   let salvarDecorrido = 0;
   let saltoDecorrido = 0;
@@ -28,6 +29,9 @@
   let gamepadAtivoIndex = null;
   let gamepadAssinatura = '';
   let estadoBotoesGamepad = [];
+  let direcaoVerticalMenuAnterior = 0;
+  let direcaoHorizontalMenuAnterior = 0;
+  let assinaturaDebugGamepad = '';
   let gamepadCorrendo = false;
   let joystick = { dx: 0, dz: 0 };
   const cameraPointers = new Map();
@@ -49,6 +53,7 @@
   const MEIA_LARGURA_LIVRE_ARCO = 5;
   const ALCANCE_MIRA = 22;
   const DEADZONE_GAMEPAD = .16;
+  const DEBUG_GAMEPAD = false;
 
   // A Gamepad API pode devolver valores pequenos mesmo com o analógico solto.
   // A faixa restante é reescalada para continuar atingindo o curso completo.
@@ -59,9 +64,11 @@
   }
 
   function atualizarIndicadorGamepad(texto, ativo = false) {
-    const indicador = $('hud-gamepad');
-    indicador.textContent = texto;
-    indicador.classList.toggle('conectado', ativo);
+    ['hud-gamepad', 'gamepad-status-menu'].forEach((id) => {
+      const indicador = $(id);
+      indicador.textContent = texto;
+      indicador.classList.toggle('conectado', ativo);
+    });
   }
 
   function gamepadConectado(gamepad) {
@@ -76,15 +83,18 @@
     gamepadAtivoIndex = null;
     estadoBotoesGamepad = [];
     gamepadAssinatura = '';
+    direcaoVerticalMenuAnterior = 0;
+    direcaoHorizontalMenuAnterior = 0;
     gamepadCorrendo = false;
     atualizarIndicadorGamepad('🎮 Controle desconectado', false);
   }
 
   // Lê o controle escolhido e calcula bordas de pressão uma vez por quadro.
   function lerControlePS4() {
-    const dispositivos = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
-    let gamepad = gamepadAtivoIndex === null ? null : dispositivos[gamepadAtivoIndex];
-    if (!gamepad?.connected) gamepad = dispositivos.find((item) => item?.connected) || null;
+    const dispositivos = navigator.getGamepads ? Array.from(navigator.getGamepads() || []) : [];
+    // Não depende do evento gamepadconnected: procura em todos os slots a cada quadro.
+    const gamepad = dispositivos.find((item) => item?.connected && item.index === gamepadAtivoIndex)
+      || dispositivos.find((item) => item && item.connected) || null;
     if (!gamepad) {
       if (gamepadAtivoIndex !== null) gamepadDesconectado({ index: gamepadAtivoIndex });
       return null;
@@ -103,18 +113,31 @@
     const ataque = botao(2) || botao(7);
     const ataqueAnterior = Boolean(estadoBotoesGamepad[2] || estadoBotoesGamepad[7]);
     const pulo = botao(0), interagir = botao(3);
+    const correrGatilho = botao(6);
+    const confirmar = (pulo && !estadoBotoesGamepad[0]) || (ataque && !ataqueAnterior);
+    const cancelar = botao(1) && !estadoBotoesGamepad[1];
     const dados = {
       dx: aplicarDeadzone(gamepad.axes[0] || 0) + (botao(15) ? 1 : 0) - (botao(14) ? 1 : 0),
       dz: aplicarDeadzone(gamepad.axes[1] || 0) + (botao(13) ? 1 : 0) - (botao(12) ? 1 : 0),
       cameraX: aplicarDeadzone(gamepad.axes[2] || 0),
       cameraY: aplicarDeadzone(gamepad.axes[3] || 0),
-      correr: botao(1) || Boolean(gamepad.buttons[6] && gamepad.buttons[6].value > .65),
+      correr: botao(1) || correrGatilho,
       atacar: ataque && !ataqueAnterior,
       pular: pulo && !estadoBotoesGamepad[0],
       interagir: interagir && !estadoBotoesGamepad[3],
-      alternarMira: acaoMira && !miraAnterior
+      alternarMira: acaoMira && !miraAnterior,
+      confirmar,
+      cancelar
     };
     estadoBotoesGamepad = atuais;
+    if (DEBUG_GAMEPAD) {
+      const pressionados = atuais.flatMap((pressionado, indice) => pressionado ? [indice] : []);
+      const assinatura = `${gamepad.index}|${gamepad.axes.map((eixo) => eixo.toFixed(2)).join(',')}|${pressionados.join(',')}`;
+      if (assinatura !== assinaturaDebugGamepad) {
+        console.debug('[gamepad]', { id: gamepad.id, index: gamepad.index, axes: [...gamepad.axes], buttonsPressed: pressionados });
+        assinaturaDebugGamepad = assinatura;
+      }
+    }
     return dados;
   }
 
@@ -131,6 +154,49 @@
       renderizador.moverCameraComAnalogo(entrada.cameraX, entrada.cameraY, dt);
     }
     return { dx: entrada.dx, dz: entrada.dz };
+  }
+
+  // Mantém leitura ativa nos menus, onde o loop da aventura ainda não está rodando.
+  function processarMenuGamepad() {
+    const entrada = lerControlePS4();
+    if (!entrada) { direcaoVerticalMenuAnterior = 0; direcaoHorizontalMenuAnterior = 0; return; }
+    const telaAtiva = ['tela-inicio', 'tela-jogo', 'tela-fim'].map((id) => $(id)).find((tela) => !tela.hidden);
+    if (!telaAtiva) { direcaoVerticalMenuAnterior = 0; direcaoHorizontalMenuAnterior = 0; return; }
+    const controles = [...telaAtiva.querySelectorAll('button:not([hidden]), input:not([disabled]), select:not([disabled]), summary')]
+      .filter((controle) => !controle.disabled);
+    const vertical = Math.abs(entrada.dz) > .55 ? Math.sign(entrada.dz) : 0;
+    const horizontal = Math.abs(entrada.dx) > .55 ? Math.sign(entrada.dx) : 0;
+    if (vertical && vertical !== direcaoVerticalMenuAnterior && controles.length) {
+      let indice = controles.indexOf(document.activeElement);
+      indice = indice < 0 ? 0 : (indice + (vertical > 0 ? 1 : -1) + controles.length) % controles.length;
+      controles[indice].focus();
+    }
+    if (horizontal && horizontal !== direcaoHorizontalMenuAnterior && document.activeElement?.tagName === 'SELECT') {
+      const seletor = document.activeElement;
+      seletor.selectedIndex = Math.max(0, Math.min(seletor.options.length - 1, seletor.selectedIndex + horizontal));
+      seletor.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    direcaoVerticalMenuAnterior = vertical;
+    direcaoHorizontalMenuAnterior = horizontal;
+    if (entrada.cancelar) {
+      if (telaAtiva.id === 'tela-jogo') $('botao-voltar').click();
+      else if (telaAtiva.id === 'tela-fim') $('botao-fim-inicio').click();
+      return;
+    }
+    if (entrada.confirmar) {
+      let alvo = controles.includes(document.activeElement) ? document.activeElement : null;
+      if (!alvo && telaAtiva.id === 'tela-inicio') {
+        alvo = !$('botao-continuar').hidden ? $('botao-continuar') : $('botao-jogar');
+      }
+      if (!alvo) alvo = controles.find((controle) => controle.tagName === 'BUTTON');
+      alvo?.click();
+    }
+  }
+
+  function passoMenus(agora) {
+    // A leitura é mantida também na tela inicial, sem depender de eventos de conexão.
+    if ($('tela-aventura').hidden) processarMenuGamepad();
+    frameGamepadMenu = requestAnimationFrame(passoMenus);
   }
 
   function mostrar(tela) {
@@ -594,4 +660,5 @@
     else iniciarAventura(true);
   });
   mostrar('tela-inicio');
+  frameGamepadMenu = requestAnimationFrame(passoMenus);
 })();

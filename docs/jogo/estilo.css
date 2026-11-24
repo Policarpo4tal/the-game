@@ -17,6 +17,8 @@ body { background: radial-gradient(circle at top, #f7d9a8, var(--cor)); color: v
 .botao:focus-visible, .alvo:focus-visible, .controle:focus-visible { outline: 4px solid #f2b544; outline-offset: 3px; }
 .botao-secundario { background: #59452d; border-color: #352719; }
 .ajuda { width: min(500px, 100%); text-align: left; }
+.gamepad-status-menu { margin: 0; color: #6d5a43; font-size: .82rem; }
+.gamepad-status-menu.conectado { color: #326b32; font-weight: 700; }
 .ajuda summary { min-height: 48px; padding: 10px 0; cursor: pointer; font-weight: 800; }
 .tela-mundo { position: relative; display: block; width: 100%; min-height: 530px; overflow: hidden; padding: 0; background: #293a25; border-color: #432b19; }
 #mundo { display: block; width: 100%; height: min(70vh, 720px); min-height: 510px; background: #6b9bb3; touch-action: none; }
