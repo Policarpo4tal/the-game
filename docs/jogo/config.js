@@ -7,5 +7,5 @@ window.JOGO_CONFIG = {
   "cor": "#B5121B",
   "orientacao": "retrato",
   "emoji": "🛡️",
-  "descricao": "Acerte alvos da arena medieval e desvie do alvo proibido em 30 segundos."
+  "descricao": "Explore Valedouro em 3D, enfrente monstros e evolua seu herói medieval."
 };

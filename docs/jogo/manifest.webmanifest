@@ -1,7 +1,7 @@
 {
   "name": "The Warrior",
   "short_name": "The Warrior",
-  "description": "Acerte alvos da arena medieval e desvie do alvo proibido em 30 segundos.",
+  "description": "Explore Valedouro em 3D, enfrente monstros e evolua seu herói medieval.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",

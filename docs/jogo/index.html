@@ -14,6 +14,7 @@
   <script src="placar.js"></script>
   <script src="placar-ui.js"></script>
   <script src="regras.js"></script>
+  <script src="mundo3d.js"></script>
   <script src="pwa.js" defer></script>
   <script src="jogo.js" defer></script>
 </head>
@@ -22,21 +23,49 @@
     <header class="topo"><h1 id="titulo">The Warrior</h1><p>Recorde: <strong id="melhor">0</strong></p></header>
     <section id="tela-inicio" class="tela">
       <div class="brasao" aria-hidden="true">🛡️</div>
-      <p class="instrucao">Acerte moedas, poções e escudos. Evite a caveira proibida! Você tem 30 segundos.</p>
-      <button id="botao-jogar" class="botao" type="button">Entrar na arena</button>
+      <p class="instrucao">O reino de Valedouro está cercado. Explore a vila, siga a trilha e defenda-se das criaturas.</p>
+      <label class="campo">Nome do herói <input id="nome-heroi" maxlength="18" value="Eadric" autocomplete="nickname"></label>
+      <label class="campo">Classe
+        <select id="classe-heroi">
+          <option>Guerreiro</option><option>Mago</option><option>Arqueiro</option><option>Assassino</option><option>Paladino</option>
+        </select>
+      </label>
+      <p id="progresso-salvo" class="mensagem" role="status"></p>
+      <button id="botao-continuar" class="botao" type="button" hidden>Continuar aventura salva</button>
+      <button id="botao-jogar" class="botao" type="button">Criar herói e explorar</button>
+      <button id="botao-treino" class="botao botao-secundario" type="button">Treino de alvos</button>
+      <details class="ajuda"><summary>Controles da aventura</summary><p>No computador: WASD/setas para andar, Shift para correr, Espaço para pular, J para atacar e E para abrir o baú. No celular, use o direcional e os botões na tela.</p></details>
     </section>
-    <section id="tela-jogo" class="tela" hidden aria-label="Partida">
+    <section id="tela-aventura" class="tela tela-mundo" hidden aria-label="Aventura 3D">
+      <div class="hud-mundo">
+        <div class="identidade"><strong id="hud-nome">Herói</strong> · Nv. <strong id="hud-nivel">1</strong> · <span id="hud-classe">Guerreiro</span></div>
+        <div class="barras"><label>❤️ <progress id="hud-vida" max="100" value="100"></progress> <span id="hud-vida-texto"></span></label><label>✨ <progress id="hud-xp" max="100" value="0"></progress> <span id="hud-xp-texto"></span></label></div>
+        <div class="hud-dados"><span>🪙 <strong id="hud-moedas">0</strong></span><span>☠️ <strong id="hud-abates">0</strong></span><span id="hud-missao">Missão: derrote as criaturas (0/3)</span></div>
+        <p id="hud-mensagem" aria-live="polite">Explore e proteja a vila.</p>
+      </div>
+      <canvas id="mundo" aria-label="Mundo medieval tridimensional"></canvas>
+      <div id="tela-falha-3d" class="falha-3d" hidden></div>
+      <div class="controles-mobile" aria-label="Controles de toque">
+        <div id="joystick" class="joystick" aria-label="Direcional virtual"><span></span></div>
+        <div class="acoes"><button id="botao-correr" class="controle" type="button">Correr</button><button id="botao-pular" class="controle" type="button">Pular</button><button id="botao-interagir" class="controle" type="button">Abrir baú</button><button id="botao-atacar" class="controle controle-ataque" type="button">⚔️</button></div>
+      </div>
+      <button id="botao-sair" class="botao botao-sair" type="button">Salvar e voltar ao acampamento</button>
+    </section>
+    <section id="tela-jogo" class="tela" hidden aria-label="Treino de alvos">
       <div class="status"><span>⏳ <strong id="tempo">30</strong>s</span><span>⭐ <strong id="pontos">0</strong></span><span>Combo: <strong id="combo">0</strong></span></div>
       <p id="mensagem" class="mensagem" aria-live="polite">Toque nos itens bons!</p>
       <div id="arena" class="arena" role="group" aria-label="Arena medieval"></div>
+      <button id="botao-voltar" class="botao botao-secundario" type="button">Voltar ao acampamento</button>
     </section>
     <section id="tela-fim" class="tela" hidden aria-label="Fim da partida">
       <div class="brasao" aria-hidden="true">🏆</div>
-      <p class="instrucao">A batalha acabou! Sua pontuação: <strong id="resultado">0</strong></p>
+      <p id="fim-titulo" class="instrucao">Fim da partida!</p>
+      <p id="resultado" class="resultado">0</p>
       <p id="situacao-salvamento" role="status" aria-live="polite"></p>
       <button id="botao-de-novo" class="botao" type="button">Jogar de novo</button>
+      <button id="botao-fim-inicio" class="botao botao-secundario" type="button">Voltar ao acampamento</button>
     </section>
-    <aside id="painel-placar" aria-label="Placar"></aside>
+    <aside id="painel-placar" aria-label="Placar e ranking"></aside>
   </main>
 </body>
 </html>

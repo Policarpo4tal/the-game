@@ -63,3 +63,57 @@ test('uma partida encerrada não aceita mais alvos nem pontos', () => {
   assert.equal(depois, fim);
   assert.equal(depois.pontos, 0);
 });
+
+test('nova aventura cria herói válido com classe e inimigos', () => {
+  const e = Regras.rpgNovaAventura('Lina', 'Mago');
+  assert.equal(e.nome, 'Lina');
+  assert.equal(e.classe, 'Mago');
+  assert.equal(e.vidaMax, 90);
+  assert.equal(e.inimigos.length, 3);
+  assert.equal(Regras.rpgDadosValidos(e), true);
+});
+
+test('movimento aceita corrida e respeita o limite do mapa', () => {
+  let e = Regras.rpgNovaAventura('Lina', 'Guerreiro');
+  e = Regras.rpgAtualizar(e, { dx: 1, dz: 0, correr: true }, 100);
+  assert.equal(e.x, 0.8);
+  e = Regras.rpgAtualizar({ ...e, x: 43.9 }, { dx: 1 }, 100);
+  assert.equal(e.x, 44);
+});
+
+test('paredes de casas bloqueiam passagem durante a exploração', () => {
+  const e = { ...Regras.rpgNovaAventura('Lina', 'Guerreiro'), x: 9, z: 10 };
+  const bloqueado = Regras.rpgAtualizar(e, { dx: 1, dz: 0 }, 100);
+  assert.equal(bloqueado.x, e.x);
+  assert.equal(bloqueado.z, e.z);
+});
+
+test('ataque só atinge inimigo próximo e respeita recarga', () => {
+  let e = Regras.rpgNovaAventura('Lina', 'Guerreiro');
+  const distante = Regras.rpgAtualizar(e, { atacar: true }, 16, () => 0);
+  assert.equal(distante.inimigos[0].vida, 3);
+  e = { ...e, x: -6, z: -12 };
+  const perto = Regras.rpgAtualizar(e, { atacar: true }, 16, () => 0);
+  assert.equal(perto.inimigos[0].vida, 1);
+  const recarga = Regras.rpgAtualizar(perto, { atacar: true }, 16, () => 0);
+  assert.equal(recarga.inimigos[0].vida, 1);
+});
+
+test('monstro persegue o herói e causa dano ao alcançar distância de ataque', () => {
+  let e = Regras.rpgNovaAventura('Lina', 'Guerreiro');
+  e = { ...e, x: -7, z: -12, inimigos: e.inimigos.map((enemy, i) => i ? { ...enemy, vida: 0 } : { ...enemy, x: -7, z: -13 }) };
+  const perto = Regras.rpgAtualizar(e, {}, 100, () => 0);
+  assert.ok(perto.vida < perto.vidaMax);
+});
+
+test('baú recompensa apenas uma vez e o progresso pode ser validado antes de salvar', () => {
+  let e = Regras.rpgNovaAventura('Lina', 'Arqueiro');
+  e = { ...e, x: 18, z: 18 };
+  e = Regras.rpgAtualizar(e, { interagir: true }, 16, () => 0);
+  assert.equal(e.bausAberto, true);
+  assert.equal(e.moedas, 50);
+  const segunda = Regras.rpgAtualizar(e, { interagir: true }, 16, () => 0);
+  assert.equal(segunda.moedas, 50);
+  assert.equal(Regras.rpgDadosValidos(segunda), true);
+  assert.equal(Regras.rpgDadosValidos({ ...segunda, x: 'inválido' }), false);
+});
