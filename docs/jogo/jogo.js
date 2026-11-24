@@ -24,7 +24,9 @@
   let puloSolicitado = false;
   let interacaoSolicitada = false;
   let joystick = { dx: 0, dz: 0 };
-  let cameraPointer = null;
+  const cameraPointers = new Map();
+  let distanciaToqueCamera = null;
+  let anguloHeroi = 0;
   let treino;
   let frameTreino;
   let treinoSalvando = false;
@@ -148,6 +150,7 @@
     const dxLocal = joystick.dx + (direita ? 1 : 0) - (esquerda ? 1 : 0);
     const dzLocal = joystick.dz + (tras ? 1 : 0) - (frente ? 1 : 0);
     const { dx, dz } = renderizador ? renderizador.orientarMovimento(dxLocal, dzLocal) : { dx: dxLocal, dz: dzLocal };
+    const xAntes = estadoAventura.x, zAntes = estadoAventura.z;
     const bauAntes = estadoAventura.bausAberto;
     const abatesAntes = estadoAventura.inimigosDerrotados;
     const nivelAntes = estadoAventura.nivel;
@@ -157,6 +160,8 @@
       dx, dz, correr: teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim',
       atacar: ataqueSolicitado, pular: puloSolicitado, interagir: interacaoSolicitada
     }, dt, Math.random);
+    const movimentoX = estadoAventura.x - xAntes, movimentoZ = estadoAventura.z - zAntes;
+    if (Math.hypot(movimentoX,movimentoZ) > .0001) anguloHeroi = Math.atan2(-movimentoX,-movimentoZ);
     ataqueSolicitado = false;
     if (estadoAventura.inimigos.some((inimigo) => inimigo.vida < (vidasAntes.get(inimigo.id) ?? inimigo.vida))) tocarImpactoEspada();
     if (puloSolicitado && saltoDecorrido === 0) saltoDecorrido = .55;
@@ -176,7 +181,7 @@
     ataqueAnimacao = Math.max(0, ataqueAnimacao - dt / 1000);
     if (estadoAventura.cooldown > .36) ataqueAnimacao = .2;
     const alturaSalto = saltoDecorrido > 0 ? Math.sin((.55 - saltoDecorrido) / .55 * Math.PI) * .8 : 0;
-    renderizador.desenhar(estadoAventura, agora, alturaSalto, ataqueAnimacao);
+    renderizador.desenhar(estadoAventura, agora, alturaSalto, ataqueAnimacao, dt/1000, anguloHeroi);
     atualizaHud();
     salvarDecorrido += dt;
     if (salvarDecorrido > 5000) { salvarDecorrido = 0; salvarAventura(); }
@@ -233,32 +238,58 @@
     teclas.add(k);
   });
   window.addEventListener('keyup', (e) => teclas.delete(e.key.toLowerCase()));
-  window.addEventListener('blur', () => { teclas.clear(); soltarJoystick(); $('botao-correr').dataset.pressionado = ''; });
+  window.addEventListener('blur', () => {
+    teclas.clear(); soltarJoystick(); $('botao-correr').dataset.pressionado = '';
+    cameraPointers.clear(); distanciaToqueCamera = null;
+  });
   document.addEventListener('visibilitychange', () => { if (document.hidden) salvarAventura(); });
-  $('mundo').addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse' && e.button === 0) { prepararAudio(); ataqueSolicitado = true; return; }
-    if (e.pointerType === 'touch' || (e.pointerType === 'mouse' && e.button === 2)) {
+  function instalarControlesCamera() {
+    const canvas=$('mundo');
+    const toquesAtivos=()=>[...cameraPointers.values()].filter((p)=>p.tipo==='touch');
+    const distanciaEntre=(toques)=>toques.length<2?null:Math.hypot(toques[0].x-toques[1].x,toques[0].y-toques[1].y);
+    const iniciar=(e)=>{
+      if (e.pointerType==='mouse' && e.button===0) { prepararAudio(); ataqueSolicitado=true; return; }
+      if (e.pointerType!=='touch' && !(e.pointerType==='mouse' && e.button===2)) return;
       e.preventDefault();
-      cameraPointer = { id: e.pointerId, x: e.clientX, y: e.clientY };
-      $('mundo').setPointerCapture(e.pointerId);
-    }
-  });
-  $('mundo').addEventListener('pointermove', (e) => {
-    if (!cameraPointer || cameraPointer.id !== e.pointerId) return;
-    const dx = e.clientX - cameraPointer.x, dy = e.clientY - cameraPointer.y;
-    cameraPointer.x = e.clientX; cameraPointer.y = e.clientY;
-    if (renderizador) renderizador.moverCamera(dx, dy);
-  });
-  function soltarCamera(e) { if (cameraPointer && cameraPointer.id === e.pointerId) cameraPointer = null; }
-  $('mundo').addEventListener('pointerup', soltarCamera);
-  $('mundo').addEventListener('pointercancel', soltarCamera);
-  $('mundo').addEventListener('contextmenu', (e) => e.preventDefault());
-  $('mundo').addEventListener('wheel', (e) => {
-    if (renderizador && !$('tela-aventura').hidden) {
+      cameraPointers.set(e.pointerId,{tipo:e.pointerType,x:e.clientX,y:e.clientY});
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+      distanciaToqueCamera=distanciaEntre(toquesAtivos());
+    };
+    const mover=(e)=>{
+      const ponteiro=cameraPointers.get(e.pointerId);
+      if (!ponteiro) return;
+      const dx=e.clientX-ponteiro.x, dy=e.clientY-ponteiro.y;
+      const distanciaAntes=distanciaToqueCamera;
+      ponteiro.x=e.clientX; ponteiro.y=e.clientY;
+      const toquesDepois=toquesAtivos();
+      if (!renderizador) return;
+      if (toquesDepois.length>=2) {
+        const distanciaNova=distanciaEntre(toquesDepois);
+        if (distanciaAntes!==null && distanciaNova!==null) renderizador.moverCamera(0,0,(distanciaAntes-distanciaNova)*.035);
+        distanciaToqueCamera=distanciaNova;
+      } else {
+        distanciaToqueCamera=null;
+        renderizador.moverCamera(dx,dy);
+      }
+    };
+    const soltar=(e)=>{
+      if (!cameraPointers.has(e.pointerId)) return;
+      cameraPointers.delete(e.pointerId);
+      distanciaToqueCamera=distanciaEntre(toquesAtivos());
+    };
+    canvas.addEventListener('pointerdown',iniciar);
+    canvas.addEventListener('pointermove',mover);
+    canvas.addEventListener('pointerup',soltar);
+    canvas.addEventListener('pointercancel',soltar);
+    canvas.addEventListener('lostpointercapture',soltar);
+    canvas.addEventListener('contextmenu',(e)=>e.preventDefault());
+    canvas.addEventListener('wheel',(e)=>{
+      if (!renderizador || $('tela-aventura').hidden) return;
       e.preventDefault();
-      renderizador.moverCamera(0, 0, Math.sign(e.deltaY) * .7);
-    }
-  }, { passive: false });
+      renderizador.moverCamera(0,0,Math.sign(e.deltaY)*.7);
+    },{passive:false});
+  }
+  instalarControlesCamera();
   $('botao-jogar').addEventListener('click', () => iniciarAventura(true));
   $('botao-continuar').addEventListener('click', () => iniciarAventura(false));
   $('botao-sair').addEventListener('click', async () => { cancelAnimationFrame(frameMundo); await salvarAventura(); atualizarProgressoSalvo(); mostrar('tela-inicio'); });

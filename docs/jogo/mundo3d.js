@@ -51,53 +51,61 @@
     const uMvp=gl.getUniformLocation(programa,'u_mvp'), uColor=gl.getUniformLocation(programa,'u_color'), uLight=gl.getUniformLocation(programa,'u_light');
     const cube=cubeData(gl);
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
-    let camera=[0,5,10], cameraYaw=0, cameraPitch=.332, cameraDistance=12.6;
+    const camera={ yaw:0, pitch:.30, distance:8.5, alvoSuave:null };
     function moverCamera(dx,dy,zoom=0) {
-      cameraYaw += dx*.006;
-      cameraPitch = Math.max(-.05, Math.min(.85, cameraPitch-dy*.004));
-      cameraDistance = Math.max(7, Math.min(20, cameraDistance+zoom));
+      camera.yaw += dx*.005;
+      camera.pitch = Math.max(.12, Math.min(.9, camera.pitch-dy*.004));
+      camera.distance = Math.max(4.5, Math.min(14, camera.distance+zoom));
     }
     function orientarMovimento(dx,dz) {
-      const c=Math.cos(cameraYaw), s=Math.sin(cameraYaw);
+      const c=Math.cos(camera.yaw), s=Math.sin(camera.yaw);
       return { dx: dx*c + dz*s, dz: -dx*s + dz*c };
     }
-    function desenhar(estado, agora, salto, ataque) {
+    function desenhar(estado, agora, salto, ataque, deltaSegundos=0, anguloHeroi=0) {
       const dpr=Math.min(window.devicePixelRatio||1,1.5), w=Math.max(1,Math.floor(canvas.clientWidth*dpr)), h=Math.max(1,Math.floor(canvas.clientHeight*dpr));
       if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h);}
       const noite=(Math.sin(agora*.000025)+1)/2;
       const luz=.76+(.24*(1-noite));
       gl.clearColor(.30*(1-noite)+.035*noite,.57*(1-noite)+.055*noite,.78*(1-noite)+.13*noite,1);
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-      const destino=[estado.x,1,estado.z-3.4];
-      const horizontal=cameraDistance*Math.cos(cameraPitch);
-      const alvoCam=[destino[0]+Math.sin(cameraYaw)*horizontal,
-        destino[1]+cameraDistance*Math.sin(cameraPitch),
-        destino[2]+Math.cos(cameraYaw)*horizontal];
-      camera=camera.map((v,i)=>v+(alvoCam[i]-v)*.12);
-      const vp=mul(perspective(Math.PI/3,w/h,.1,130),lookAt(camera,destino));
+      const destinoAtual=[estado.x,1.15,estado.z];
+      if (!camera.alvoSuave) camera.alvoSuave=destinoAtual.slice();
+      else {
+        const alpha=1-Math.exp(-12*Math.max(0,Math.min(deltaSegundos,.1)));
+        camera.alvoSuave=camera.alvoSuave.map((v,i)=>v+(destinoAtual[i]-v)*alpha);
+      }
+      const horizontal=camera.distance*Math.cos(camera.pitch);
+      const posicaoCam=[camera.alvoSuave[0]+Math.sin(camera.yaw)*horizontal,
+        camera.alvoSuave[1]+camera.distance*Math.sin(camera.pitch),
+        camera.alvoSuave[2]+Math.cos(camera.yaw)*horizontal];
+      const vp=mul(perspective(Math.PI/3,w/h,.1,130),lookAt(posicaoCam,camera.alvoSuave));
       gl.bindBuffer(gl.ARRAY_BUFFER,cube.pb); gl.enableVertexAttribArray(pos); gl.vertexAttribPointer(pos,3,gl.FLOAT,false,0,0);
       gl.bindBuffer(gl.ARRAY_BUFFER,cube.nb); gl.enableVertexAttribArray(norm); gl.vertexAttribPointer(norm,3,gl.FLOAT,false,0,0);
       const box=(x,y,z,sx,sy,sz,color,ang=0)=>{
         const m=mul(vp,modelo(x,y,z,sx,sy,sz,ang)); gl.uniformMatrix4fv(uMvp,false,new Float32Array(m));
         gl.uniform3fv(uColor,new Float32Array(color)); gl.uniform1f(uLight,luz); gl.drawArrays(gl.TRIANGLES,0,cube.count);
       };
-      const humanoide=(x,z,py,cor,skin,helm,arma,escudo=false)=>{
-        // Silhueta em camadas: botas, pernas, túnica, ombreiras, braços e cabeça.
-        box(x-.2,.23+py,z,.28,.42,.38,[.16,.16,.18]); box(x+.2,.23+py,z,.28,.42,.38,[.16,.16,.18]);
-        box(x-.2,.58+py,z,.3,.54,.34,[.28,.25,.21]); box(x+.2,.58+py,z,.3,.54,.34,[.28,.25,.21]);
-        box(x,.98+py,z,.68,.68,.42,cor);
-        box(x,.72+py,z-.23,.72,.13,.08,[.72,.52,.21]);
-        box(x-.42,1.2+py,z,.27,.25,.45,cor); box(x+.42,1.2+py,z,.27,.25,.45,cor);
-        box(x-.48,.93+py,z-.02,.2,.6,.25,cor,-.14); box(x+.48,.93+py,z-.02,.2,.6,.25,cor,.14);
-        box(x,1.52+py,z,.3,.2,.28,skin);
-        box(x,1.79+py,z,.48,.48,.42,skin);
-        box(x,2.01+py,z-.02,.53,.17,.48,helm);
-        box(x-.11,1.81+py,z-.22,.055,.07,.035,[.12,.12,.13]); box(x+.11,1.81+py,z-.22,.055,.07,.035,[.12,.12,.13]);
-        box(x,1.7+py,z-.255,.22,.06,.025,[.42,.22,.16]);
-        // Espada e guarda em metal; o escudo varia conforme a classe.
-        box(x+.67,1.02+py,z-.12,.11,.64,.11,arma,-.38);
-        box(x+.67,1.1+py,z-.12,.17,.08,.15,[.75,.62,.32],-.38);
-        if(escudo) { box(x-.66,1.04+py,z-.06,.14,.68,.48,[.64,.48,.22]); box(x-.66,1.08+py,z-.315,.07,.13,.04,[.9,.74,.35]); }
+      const humanoide=(x,z,py,cor,skin,helm,arma,escudo=false,yaw=0,ataque=false)=>{
+        const c=Math.cos(yaw), s=Math.sin(yaw);
+        const parte=(lx,y,lz,sx,sy,sz,color,rot=0)=>
+          box(x+lx*c+lz*s,y+py,z-lx*s+lz*c,sx,sy,sz,color,yaw+rot);
+        // Frente local é -Z; a rotação aplica-se às peças e à posição de cada peça.
+        parte(-.2,.23,0,.28,.42,.38,[.16,.16,.18]); parte(.2,.23,0,.28,.42,.38,[.16,.16,.18]);
+        parte(-.2,.58,0,.3,.54,.34,[.28,.25,.21]); parte(.2,.58,0,.3,.54,.34,[.28,.25,.21]);
+        parte(0,.98,0,.68,.68,.42,cor);
+        parte(0,.72,-.23,.72,.13,.08,[.72,.52,.21]);
+        parte(-.42,1.2,0,.27,.25,.45,cor); parte(.42,1.2,0,.27,.25,.45,cor);
+        parte(-.48,.93,-.02,.2,.6,.25,cor,-.14); parte(.48,.93,-.02,.2,.6,.25,cor,.14);
+        parte(0,1.52,0,.3,.2,.28,skin);
+        parte(0,1.79,0,.48,.48,.42,skin);
+        parte(0,2.01,-.02,.53,.17,.48,helm);
+        parte(-.11,1.81,-.22,.055,.07,.035,[.12,.12,.13]); parte(.11,1.81,-.22,.055,.07,.035,[.12,.12,.13]);
+        parte(0,1.7,-.255,.22,.06,.025,[.42,.22,.16]);
+        // Espada, efeito do golpe e escudo acompanham a orientação do herói.
+        parte(.67,1.02,-.12,.11,.64,.11,arma,-.38);
+        parte(.67,1.1,-.12,.17,.08,.15,[.75,.62,.32],-.38);
+        if(ataque) parte(.88,1.1,-.42,.13,.68,.12,[.95,.9,.72],-.9);
+        if(escudo) { parte(-.66,1.04,-.06,.14,.68,.48,[.64,.48,.22]); parte(-.66,1.08,-.315,.07,.13,.04,[.9,.74,.35]); }
       };
       const goblin=(x,z,ang)=>{
         const green=[.27,.53,.19], dark=[.17,.35,.13];
@@ -163,8 +171,7 @@
       // Herói low-poly em armadura, com detalhes e equipamento da classe.
       const classe=Regras.CLASSES[estado.classe], py=salto;
       const corHeroi=hex(classe.cor), elmo=estado.classe==='Mago'?[.27,.2,.43]:estado.classe==='Arqueiro'?[.28,.31,.2]:[.36,.31,.24];
-      humanoide(estado.x,estado.z,py,corHeroi,[.77,.57,.39],elmo,[.72,.72,.67],estado.classe==='Paladino');
-      if(ataque>0) box(estado.x+.85,1.1+py,estado.z-.4,.13,.68,.12,[.95,.9,.72],-.9);
+      humanoide(estado.x,estado.z,py,corHeroi,[.77,.57,.39],elmo,[.72,.72,.67],estado.classe==='Paladino',anguloHeroi,ataque>0);
       // Inimigos com silhuetas próprias e barras de vida.
       for(const e of estado.inimigos) if(e.vida>0) {
         const ang=Math.atan2(estado.x-e.x,-(estado.z-e.z));

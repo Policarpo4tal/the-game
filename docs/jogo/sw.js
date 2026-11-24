@@ -1,5 +1,5 @@
 // Service worker: tenta sempre a versão nova pela internet; sem internet, usa a cópia guardada.
-const CACHE = 'the-warrior-3d-v6';
+const CACHE = 'the-warrior-3d-v7';
 const ARQUIVOS = [
   './', './index.html', './estilo.css', './placar.css', './config.js', './placar.js',
   './placar-ui.js', './regras.js', './mundo3d.js', './jogo.js', './pwa.js', './manifest.webmanifest',
