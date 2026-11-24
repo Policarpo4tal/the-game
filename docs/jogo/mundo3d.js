@@ -62,7 +62,11 @@
       skin: new T.MeshStandardMaterial({ color: 0x88694e, roughness: .9 }),
       ember: new T.MeshStandardMaterial({ color: 0xff681c, emissive: 0xff3508, emissiveIntensity: 2.8, roughness: .4 }),
       eye: new T.MeshStandardMaterial({ color: 0xff3212, emissive: 0xff1600, emissiveIntensity: 3, roughness: .3 }),
-      mira: new T.MeshBasicMaterial({ color: 0xffd45c, side: T.DoubleSide, toneMapped: false })
+      mira: new T.MeshBasicMaterial({ color: 0xffd45c, side: T.DoubleSide, toneMapped: false }),
+      capim: new T.MeshStandardMaterial({ color: 0x57543a, roughness: 1, side: T.DoubleSide }),
+      mato: new T.MeshStandardMaterial({ color: 0x373a2e, roughness: 1, side: T.DoubleSide }),
+      cinza: new T.MeshStandardMaterial({ color: 0x4b4845, roughness: 1 }),
+      estandarte: new T.MeshStandardMaterial({ color: 0x39242a, roughness: 1, side: T.DoubleSide })
     };
     const hemi = new T.HemisphereLight(0x9eabc5, 0x211a19, 1.05); scene.add(hemi);
     const moon = new T.DirectionalLight(0xb6c7e4, 2.4); moon.position.set(-18, 28, 16); moon.castShadow = true;
@@ -143,6 +147,177 @@
     function link(parent, a, b, radius, material, sides = 10) { const p = v(...a), q = v(...b), d = q.clone().sub(p); const m = mesh(new T.CylinderGeometry(radius * .72, radius, d.length(), sides), material, parent); m.position.copy(p.add(q).multiplyScalar(.5)); m.quaternion.setFromUnitVectors(v(0, 1, 0), d.normalize()); return m; }
     function rootScene(parent, position) { const g = new T.Group(); g.position.set(...position); parent.add(g); return g; }
 
+    // Gera relevo rochoso facetado com a mesma forma determinística em cada partida.
+    function criarGeometriaMontanha(semente) {
+      const geometria = new T.ConeGeometry(1, 1, 20, 10);
+      const posicoes = geometria.attributes.position;
+      const cores = new Float32Array(posicoes.count * 3);
+      const base = new T.Color(0x242a29), meio = new T.Color(0x48545b), cume = new T.Color(0x89939d);
+      for (let i = 0; i < posicoes.count; i++) {
+        const x = posicoes.getX(i), y = posicoes.getY(i), z = posicoes.getZ(i);
+        const t = Math.max(0, Math.min(1, y + .5));
+        const angulo = Math.atan2(z, x);
+        const ruida = Math.sin(angulo * 3 + semente) * .48 + Math.sin(angulo * 7 - semente * 1.7) * .28 + Math.cos(angulo * 11 + semente * .4) * .18;
+        const vale = Math.sin(angulo * 5 + semente * 2) * Math.sin(t * Math.PI * 2.2);
+        const relevoRadial = 1 + ruida * (.12 + .19 * t) + vale * .055;
+        const yIrregular = t + ruida * Math.pow(t, 4) * .13 + vale * .035;
+        posicoes.setXYZ(i, x * relevoRadial, yIrregular, z * relevoRadial);
+        const cor = t < .37 ? base.clone().lerp(meio, t / .37) : meio.clone().lerp(cume, (t - .37) / .63);
+        const variacaoFaceta = .92 + .12 * Math.sin(angulo * 13 + semente + t * 8);
+        cores[i * 3] = cor.r * variacaoFaceta; cores[i * 3 + 1] = cor.g * variacaoFaceta; cores[i * 3 + 2] = cor.b * variacaoFaceta;
+      }
+      geometria.setAttribute('color', new T.BufferAttribute(cores, 3));
+      geometria.computeVertexNormals();
+      return geometria;
+    }
+
+    // Anel de duas camadas, fora do alcance máximo (44) da arena e de seus cantos.
+    function criarMontanhasHorizonte(cena, texturas) {
+      const grupo = new T.Group(); grupo.name = 'cordilheira-do-vale'; cena.add(grupo);
+      const material = new T.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, flatShading: true,
+        roughness: .98, bumpMap: texturas.muro?.bumpMap, bumpScale: .035 });
+      for (const camada of [0, 1]) {
+        const quantidade = 12;
+        const raioAnel = camada === 0 ? 84 : 114;
+        const anguloInicial = camada === 0 ? 0 : Math.PI / quantidade;
+        for (let i = 0; i < quantidade; i++) {
+          const semente = (camada + 1) * 13.73 + i * 2.417;
+          const angulo = anguloInicial + i * Math.PI * 2 / quantidade + Math.sin(semente) * .035;
+          const raio = raioAnel + Math.sin(semente * 1.3) * (camada === 0 ? 2.4 : 4.5);
+          const largura = camada === 0 ? 17 + Math.sin(semente * 2) * 2 : 31 + Math.cos(semente) * 3;
+          const altura = camada === 0 ? 29 + Math.sin(semente * 3) * 8 : 42 + Math.cos(semente * 2.1) * 10;
+          const rocha = new T.Mesh(criarGeometriaMontanha(semente), material);
+          rocha.position.set(Math.cos(angulo) * raio, -.2, Math.sin(angulo) * raio);
+          rocha.scale.set(largura, altura, largura * (.68 + .12 * Math.cos(semente)));
+          rocha.rotation.y = -angulo + Math.PI / 2; rocha.castShadow = false; rocha.receiveShadow = false;
+          grupo.add(rocha);
+        }
+      }
+      // Contrafortes baixos fazem a borda do vale subir gradualmente até os picos.
+      const materialContraforte = new T.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, flatShading: true, roughness: 1 });
+      const borda = new T.Group(); borda.name = 'contrafortes-da-arena'; borda.userData.registrarSolidos = true; cena.add(borda);
+      for (let i = 0; i < 16; i++) {
+        const semente = 71.3 + i * 1.93, angulo = i * Math.PI / 8 + .06 * Math.sin(semente);
+        const raio = 66.5 + Math.sin(semente * 1.7) * 1.1, escala = 4.2 + Math.cos(semente) * .65;
+        const rocha = mesh(criarGeometriaMontanha(semente + 3), materialContraforte, borda,
+          [Math.cos(angulo) * raio, -.1, Math.sin(angulo) * raio], [escala, 7 + Math.sin(semente * 2) * 2, escala * .9], false, true);
+        rocha.rotation.y = -angulo + Math.PI / 2; rocha.receiveShadow = true;
+      }
+      return grupo;
+    }
+
+    function numeroDeterministico(indice, semente = 0) {
+      const valor = Math.sin(indice * 127.1 + semente * 311.7) * 43758.5453;
+      return valor - Math.floor(valor);
+    }
+
+    function criarGeometriaPedregulho(variante) {
+      const geometria = new T.IcosahedronGeometry(1, 1), posicoes = geometria.attributes.position;
+      for (let i = 0; i < posicoes.count; i++) {
+        const x = posicoes.getX(i), y = posicoes.getY(i), z = posicoes.getZ(i);
+        const r = .78 + numeroDeterministico(i + variante * 31, variante) * .44;
+        posicoes.setXYZ(i, x * r, y * r, z * r);
+      }
+      geometria.computeVertexNormals(); return geometria;
+    }
+
+    // Detalhes decorativos e físicos ficam em grupos distintos. Só o grupo sólido
+    // registra as malhas no resolvedor existente; grama, cinzas e bandeiras não colidem.
+    function popularDetalhesCenario(cena, texturas) {
+      const solidos = new T.Group(); solidos.name = 'detalhes-solidos'; solidos.userData.registrarSolidos = true; cena.add(solidos);
+      const visuais = new T.Group(); visuais.name = 'detalhes-atmosfericos'; visuais.userData.registrarSolidos = false; cena.add(visuais);
+      const rochas = Array.from({ length: 4 }, (_, i) => criarGeometriaPedregulho(i));
+      const locaisPedregulho = [[-34,-34],[34,-35],[-36,-9],[36,8],[-34,25],[34,29],[-14,38],[14,-39]];
+      locaisPedregulho.forEach(([x, z], grupoIndice) => {
+        const quantidade = 2 + Math.floor(numeroDeterministico(grupoIndice, 8) * 3);
+        for (let i = 0; i < quantidade; i++) {
+          const escala = .65 + numeroDeterministico(grupoIndice * 7 + i, 4) * .65;
+          const rocha = mesh(rochas[(grupoIndice + i) % rochas.length], mat.stone, solidos,
+            [x + (i - (quantidade - 1) / 2) * .72, escala * .48 - .08, z + (numeroDeterministico(i, grupoIndice) - .5) * .8],
+            [escala * (1 + numeroDeterministico(i, 12) * .35), escala * .78, escala * (.75 + numeroDeterministico(i, 3) * .35)]);
+          rocha.rotation.set(numeroDeterministico(i, 9) * .22, numeroDeterministico(grupoIndice, i) * Math.PI, numeroDeterministico(i, 2) * .2);
+        }
+      });
+      // Muretas e pedestais ficam na orla, fora do caminho central e dos vãos dos arcos.
+      for (const [x, z, comprimento, angulo] of [[-30,-20,5,-.12],[31,-18,4,.18],[-30,16,4,.1],[31,25,5,-.16]]) {
+        const muro = rootScene(solidos, [x, 0, z]); muro.rotation.y = angulo;
+        box(muro, 0, .42, 0, comprimento, .78, .72, mat.stone);
+        box(muro, -.25, .98, .04, comprimento * .72, .28, .78, mat.stone, .04);
+      }
+      for (const [x, z] of [[-33,-27],[33,-27],[-33,11],[33,18]]) {
+        box(solidos, x, .32, z, .9, .6, .9, mat.stone, .08);
+        const pilar = mesh(new T.CylinderGeometry(.34, .46, 1.15, 7), mat.stone, solidos, [x, .87, z]); pilar.rotation.z = (x < 0 ? -.18 : .18);
+      }
+      // Braseiros: suportes físicos à margem, chamas e luzes separados e sem sombra.
+      const braseiros = [];
+      for (const [x, z] of [[-9,-37],[9,-37],[-9,-8],[9,-8],[-9,27],[9,27]]) {
+        const poste = new T.Group(); poste.userData.registrarSolidos = true; poste.position.set(x, 0, z); solidos.add(poste);
+        mesh(cylGeo, mat.iron, poste, [0, 1.05, 0], [.11, 2.1, .11]);
+        mesh(new T.TorusGeometry(.23, .045, 5, 8), mat.iron, poste, [0, 2.1, 0]);
+        const fogo = new T.Group(); fogo.userData.registrarSolidos = false; fogo.position.set(x, 2.15, z); cena.add(fogo);
+        const chama = new T.Mesh(new T.ConeGeometry(.16, .5, 7), mat.ember); chama.position.y = .24; chama.castShadow = false; fogo.add(chama);
+        const luz = new T.PointLight(0xff7836, 11, 7, 2); luz.position.set(x, 2.5, z); cena.add(luz);
+        braseiros.push({ chama, luz, fase: numeroDeterministico(x, z) * 6 });
+      }
+      // Capim seco: planos cruzados, pivôs guardados para o sistema de vento.
+      const tufos = [];
+      const geometriaFolha = new T.PlaneGeometry(.12, .72, 1, 3);
+      const casas = [[-17,9],[-19,17],[17,11],[19,20],[-14,-8],[15,-12],[8,21]];
+      const arvores = [[-24,-20],[24,-18],[-25,18],[28,12],[-31,3],[32,-3]];
+      let indiceTufo = 0;
+      for (let z = -39; z <= 33; z += 5.1) for (let x = -39; x <= 39; x += 5.4) {
+        const px = x + (numeroDeterministico(indiceTufo, 1) - .5) * 2.3;
+        const pz = z + (numeroDeterministico(indiceTufo, 2) - .5) * 2.1;
+        indiceTufo++;
+        if (Math.abs(px) < 4.6 || casas.some(([cx,cz]) => Math.hypot(px-cx,pz-cz)<4.7)
+          || arvores.some(([tx,tz]) => Math.hypot(px-tx,pz-tz)<2.6)) continue;
+        const tufo = new T.Group(); tufo.position.set(px, 0, pz); tufo.userData.registrarSolidos = false; visuais.add(tufo);
+        for (let folha = 0; folha < 4; folha++) {
+          const lamina = new T.Mesh(geometriaFolha, folha % 3 === 0 ? mat.mato : mat.capim);
+          lamina.position.set((folha - 1.5) * .09, .28, 0); lamina.rotation.y = folha * Math.PI / 4;
+          lamina.rotation.z = -.12 - numeroDeterministico(indiceTufo, folha) * .25; lamina.castShadow = false; tufo.add(lamina);
+        }
+        tufo.userData.faseVento = numeroDeterministico(indiceTufo, 4) * Math.PI * 2;
+        tufo.userData.amplitudeVento = .07 + numeroDeterministico(indiceTufo, 5) * .12;
+        tufos.push(tufo);
+      }
+      // Pedrinhas soltas, cinzas, raízes, lápides quebradas e estandartes rasgados são decorativos.
+      const pedrinhas = [];
+      for (let i = 0; i < 110; i++) {
+        const z = -39 + numeroDeterministico(i, 21) * 72;
+        const x = (numeroDeterministico(i, 22) - .5) * 6.3;
+        const pedra = new T.Mesh(rochas[i % rochas.length], mat.stone);
+        pedra.position.set(x, -.08, z); pedra.scale.setScalar(.05 + numeroDeterministico(i, 23) * .12);
+        pedra.rotation.y = numeroDeterministico(i, 24) * Math.PI; pedra.castShadow = false; visuais.add(pedra); pedrinhas.push(pedra);
+      }
+      for (let i = 0; i < 18; i++) {
+        const x = -3 + (numeroDeterministico(i, 30) - .5) * 2.6, z = 6 + (numeroDeterministico(i, 31) - .5) * 2.8;
+        const brasa = new T.Mesh(new T.IcosahedronGeometry(.1, 0), mat.cinza); brasa.position.set(x, -.04, z);
+        brasa.scale.set(1.5, .22, .8); brasa.castShadow = false; visuais.add(brasa);
+      }
+      // Raízes expostas serpenteiam pelo solo junto aos troncos, sem gerar bloqueios.
+      for (const [x,z] of arvores) {
+        for (let raiz = 0; raiz < 3; raiz++) {
+          const angulo = raiz * Math.PI * 2 / 3 + numeroDeterministico(x, z);
+          link(visuais, [x, .035, z], [x + Math.cos(angulo) * (1.3 + raiz * .2), -.015, z + Math.sin(angulo) * (1.3 + raiz * .2)], .075, mat.wood, 7);
+        }
+      }
+      for (const [x,z,rotacao] of [[-27,-12,-.18],[27,-8,.22],[-29,22,.13],[29,7,-.24],[-12,31,.16],[13,-31,-.14]]) {
+        const tumulo = new T.Group(); tumulo.position.set(x, 0, z); tumulo.rotation.z = rotacao; tumulo.userData.registrarSolidos = false; visuais.add(tumulo);
+        const placa = new T.Mesh(new T.BoxGeometry(.58, .92, .16), mat.stone); placa.position.y = .48; placa.castShadow = false; tumulo.add(placa);
+        const rachadura = new T.Mesh(new T.BoxGeometry(.07, .34, .18), mat.cinza); rachadura.position.set(.08, .55, .02); rachadura.rotation.z = -.3; tumulo.add(rachadura);
+      }
+      const bandeiras = [];
+      for (const [x,z,lado] of [[-10,-20,-1],[10,5,1],[ -12,30,-1],[12,-34,1]]) {
+        const poste = new T.Group(); poste.position.set(x, 0, z); poste.userData.registrarSolidos = false; visuais.add(poste);
+        const haste = new T.Mesh(new T.CylinderGeometry(.035,.05,2.8,6), mat.wood); haste.position.y=1.4; haste.castShadow=false; poste.add(haste);
+        const bandeira = new T.Mesh(new T.PlaneGeometry(.9,1.25,5,7), mat.estandarte);
+        bandeira.position.set(lado*.43,2.25,0); bandeira.rotation.y=lado*Math.PI/2; bandeira.castShadow=false; poste.add(bandeira);
+        bandeiras.push({ malha:bandeira, fase:numeroDeterministico(x,z)*Math.PI*2 });
+      }
+      return { tufos, bandeiras, braseiros, pedrinhas, solidos, visuais };
+    }
+
     function criarCenario() {
       const world = new T.Group(); scene.add(world);
       world.userData.registrarSolidos = true;
@@ -207,6 +382,8 @@
 
     mat.ember.userData.semColisao = true;
     const scenery = criarCenario();
+    scenery.montanhas = criarMontanhasHorizonte(scene, textures);
+    scenery.detalhes = popularDetalhesCenario(scene, textures);
     function colisorAtivo(colisor) { return colisor.ativo !== false && (!colisor.condicao || colisor.condicao()); }
     function limitarAoMapa(pos, raio) {
       return { x: Math.max(-limiteArena + raio, Math.min(limiteArena - raio, pos.x)),
