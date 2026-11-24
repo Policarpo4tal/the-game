@@ -25,6 +25,10 @@
   let alvoMiraId = null;
   let controlMiraPressionado = false;
   const controlesMiraAbaixo = new Set();
+  let gamepadAtivoIndex = null;
+  let gamepadAssinatura = '';
+  let estadoBotoesGamepad = [];
+  let gamepadCorrendo = false;
   let joystick = { dx: 0, dz: 0 };
   const cameraPointers = new Map();
   let distanciaToqueCamera = null;
@@ -44,6 +48,90 @@
   const MEIA_FAIXA_PORTAO_ARCO = 1.35;
   const MEIA_LARGURA_LIVRE_ARCO = 5;
   const ALCANCE_MIRA = 22;
+  const DEADZONE_GAMEPAD = .16;
+
+  // A Gamepad API pode devolver valores pequenos mesmo com o analógico solto.
+  // A faixa restante é reescalada para continuar atingindo o curso completo.
+  function aplicarDeadzone(valor, deadzone = DEADZONE_GAMEPAD) {
+    const modulo = Math.abs(valor);
+    if (modulo <= deadzone) return 0;
+    return Math.sign(valor) * Math.min(1, (modulo - deadzone) / (1 - deadzone));
+  }
+
+  function atualizarIndicadorGamepad(texto, ativo = false) {
+    const indicador = $('hud-gamepad');
+    indicador.textContent = texto;
+    indicador.classList.toggle('conectado', ativo);
+  }
+
+  function gamepadConectado(gamepad) {
+    gamepadAtivoIndex = gamepad.index;
+    estadoBotoesGamepad = [];
+    gamepadAssinatura = `${gamepad.index}:${gamepad.id}`;
+    atualizarIndicadorGamepad('🎮 Controle conectado', true);
+  }
+
+  function gamepadDesconectado(gamepad) {
+    if (gamepadAtivoIndex !== gamepad.index) return;
+    gamepadAtivoIndex = null;
+    estadoBotoesGamepad = [];
+    gamepadAssinatura = '';
+    gamepadCorrendo = false;
+    atualizarIndicadorGamepad('🎮 Controle desconectado', false);
+  }
+
+  // Lê o controle escolhido e calcula bordas de pressão uma vez por quadro.
+  function lerControlePS4() {
+    const dispositivos = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
+    let gamepad = gamepadAtivoIndex === null ? null : dispositivos[gamepadAtivoIndex];
+    if (!gamepad?.connected) gamepad = dispositivos.find((item) => item?.connected) || null;
+    if (!gamepad) {
+      if (gamepadAtivoIndex !== null) gamepadDesconectado({ index: gamepadAtivoIndex });
+      return null;
+    }
+    const assinatura = `${gamepad.index}:${gamepad.id}`;
+    if (assinatura !== gamepadAssinatura) gamepadConectado(gamepad);
+    // Índices do mapeamento "standard": X=0, círculo=1, quadrado=2,
+    // triângulo=3, L1/R1=4/5, L2/R2=6/7, L3/R3=10/11 e D-pad=12..15.
+    const botao = (indice) => {
+      const item = gamepad.buttons[indice];
+      return Boolean(item && (item.pressed || item.value > .5));
+    };
+    const atuais = gamepad.buttons.map((item) => Boolean(item && (item.pressed || item.value > .5)));
+    const acaoMira = botao(11) || botao(4) || botao(5);
+    const miraAnterior = Boolean(estadoBotoesGamepad[11] || estadoBotoesGamepad[4] || estadoBotoesGamepad[5]);
+    const ataque = botao(2) || botao(7);
+    const ataqueAnterior = Boolean(estadoBotoesGamepad[2] || estadoBotoesGamepad[7]);
+    const pulo = botao(0), interagir = botao(3);
+    const dados = {
+      dx: aplicarDeadzone(gamepad.axes[0] || 0) + (botao(15) ? 1 : 0) - (botao(14) ? 1 : 0),
+      dz: aplicarDeadzone(gamepad.axes[1] || 0) + (botao(13) ? 1 : 0) - (botao(12) ? 1 : 0),
+      cameraX: aplicarDeadzone(gamepad.axes[2] || 0),
+      cameraY: aplicarDeadzone(gamepad.axes[3] || 0),
+      correr: botao(1) || Boolean(gamepad.buttons[6] && gamepad.buttons[6].value > .65),
+      atacar: ataque && !ataqueAnterior,
+      pular: pulo && !estadoBotoesGamepad[0],
+      interagir: interagir && !estadoBotoesGamepad[3],
+      alternarMira: acaoMira && !miraAnterior
+    };
+    estadoBotoesGamepad = atuais;
+    return dados;
+  }
+
+  function processarEntradasGamepad(dt) {
+    const entrada = lerControlePS4();
+    gamepadCorrendo = Boolean(entrada?.correr);
+    if (!entrada) return { dx: 0, dz: 0 };
+    if (entrada.atacar) { ataqueSolicitado = true; prepararAudio(); }
+    if (entrada.pular) puloSolicitado = true;
+    if (entrada.interagir) interacaoSolicitada = true;
+    if (entrada.alternarMira) alternarTravaMira();
+    // O analógico direito controla yaw/pitch livre; no lock-on a câmera já segue o alvo.
+    if (renderizador && alvoMiraId === null && !$('tela-aventura').hidden) {
+      renderizador.moverCameraComAnalogo(entrada.cameraX, entrada.cameraY, dt);
+    }
+    return { dx: entrada.dx, dz: entrada.dz };
+  }
 
   function mostrar(tela) {
     if (tela !== 'tela-aventura') sairTelaCheia();
@@ -228,12 +316,13 @@
     const dtMs = Math.min(100, Math.max(0, agora - tempoAnterior));
     const dt = dtMs / 1000;
     tempoAnterior = agora;
+    const entradaGamepad = processarEntradasGamepad(dt);
     const esquerda = teclas.has('a') || teclas.has('arrowleft');
     const direita = teclas.has('d') || teclas.has('arrowright');
     const frente = teclas.has('w') || teclas.has('arrowup');
     const tras = teclas.has('s') || teclas.has('arrowdown');
-    const dxLocal = joystick.dx + (direita ? 1 : 0) - (esquerda ? 1 : 0);
-    const dzLocal = joystick.dz + (tras ? 1 : 0) - (frente ? 1 : 0);
+    const dxLocal = joystick.dx + entradaGamepad.dx + (direita ? 1 : 0) - (esquerda ? 1 : 0);
+    const dzLocal = joystick.dz + entradaGamepad.dz + (tras ? 1 : 0) - (frente ? 1 : 0);
     sincronizarAlvoMira();
     const alvoTravado = estadoAventura.inimigos.find((inimigo) => inimigo.id === alvoMiraId && inimigo.vida > 0);
     const movimentoOrientado = alvoTravado
@@ -248,7 +337,7 @@
     const vidasAntes = new Map(estadoAventura.inimigos.map((inimigo) => [inimigo.id, inimigo.vida]));
     const posicoesInimigosAntes = new Map(estadoAventura.inimigos.map((inimigo) => [inimigo.id, { x: inimigo.x, z: inimigo.z }]));
     const ataqueIniciado = ataqueSolicitado && estadoAventura.cooldown <= 0;
-    const correndo = teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim';
+    const correndo = teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim' || gamepadCorrendo;
     const velocidade = correndo ? 8 : 5;
     const comprimentoEntrada = Math.hypot(dx, dz) || 1;
     const destinoPedido = { x: xAntes + dx / comprimentoEntrada * velocidade * dt,
@@ -388,10 +477,13 @@
   });
   window.addEventListener('blur', () => {
     teclas.clear(); soltarJoystick(); $('botao-correr').dataset.pressionado = '';
+    gamepadCorrendo = false;
     controlMiraPressionado = false;
     controlesMiraAbaixo.clear();
     cameraPointers.clear(); distanciaToqueCamera = null;
   });
+  window.addEventListener('gamepadconnected', (evento) => gamepadConectado(evento.gamepad));
+  window.addEventListener('gamepaddisconnected', (evento) => gamepadDesconectado(evento.gamepad));
   document.addEventListener('visibilitychange', () => { if (document.hidden) salvarAventura(); });
   function instalarControlesCamera() {
     const canvas=$('mundo');

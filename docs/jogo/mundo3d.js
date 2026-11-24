@@ -371,6 +371,11 @@
     const slash = mesh(new T.TorusGeometry(.82, .035, 6, 28, Math.PI * .88), new T.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0, depthWrite: false, side: T.DoubleSide }), hero, [.43, 1.08, -.82]);
     slash.rotation.set(.15, -.22, -.4); slash.visible = false; slash.renderOrder = 3;
     function moverCamera(dx, dy, zoom = 0) { controls.yaw += dx * .005; controls.pitch = Math.max(.12, Math.min(.9, controls.pitch - dy * .004)); controls.distance = Math.max(4.5, Math.min(14, controls.distance + zoom)); }
+    // Controle analógico: sensibilidade em radianos por segundo, independente do FPS.
+    function moverCameraComAnalogo(eixoX, eixoY, dt) {
+      controls.yaw += eixoX * 1.65 * dt;
+      controls.pitch = Math.max(.12, Math.min(.9, controls.pitch - eixoY * 1.05 * dt));
+    }
     function orientarMovimento(dx, dz) { const c = Math.cos(controls.yaw), s = Math.sin(controls.yaw); return { dx: dx * c + dz * s, dz: -dx * s + dz * c }; }
     function orientarMovimentoComMira(dx, dz, xHeroi, zHeroi, xAlvo, zAlvo) {
       const yawAlvo = Math.atan2(-(xAlvo - xHeroi), -(zAlvo - zHeroi)); const c = Math.cos(yawAlvo), s = Math.sin(yawAlvo);
@@ -528,7 +533,7 @@
       scenery.chest.visible = !estado.bausAberto; scenery.aura.intensity = chestNear ? 8 + Math.sin(tempo * 1.8) * 2 : .5;
       renderer.render(scene, camera);
     }
-    return { desenhar, moverCamera, orientarMovimento, orientarMovimentoComMira, definirAlvoMira, pontuarAlinhamentoMira,
+    return { desenhar, moverCamera, moverCameraComAnalogo, orientarMovimento, orientarMovimentoComMira, definirAlvoMira, pontuarAlinhamentoMira,
       dispararAnimacaoAtaqueHeroi, dispararDanoInimigo,
       resolverColisaoHorizontal, moverComColisao, get colisoresCenario() { return colisoresCenario.slice(); } };
   }
