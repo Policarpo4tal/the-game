@@ -74,7 +74,8 @@
     function atualizarLimitesColisor(colisor, forcar = false) {
       const objeto = colisor.objeto;
       objeto.updateWorldMatrix(true, true);
-      if (!forcar && colisor.matriz.equals(objeto.matrixWorld) && colisor.geometria === objeto.geometry) return;
+      // Grupos pequenos (fogueira/baú) também acompanham mudanças nos filhos.
+      if (!forcar && !objeto.isGroup && colisor.matriz.equals(objeto.matrixWorld) && colisor.geometria === objeto.geometry) return;
       const caixa = new T.Box3().setFromObject(objeto);
       if (caixa.isEmpty()) return;
       colisor.minX = caixa.min.x; colisor.maxX = caixa.max.x; colisor.minZ = caixa.min.z; colisor.maxZ = caixa.max.z;
