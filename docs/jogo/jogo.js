@@ -32,6 +32,8 @@
   let contextoAudio = null;
   const teclas = new Set();
   const classes = Object.keys(Regras.CLASSES);
+  const RAIO_COLISAO_HEROI = .3;
+  const RAIO_COLISAO_INIMIGO = .25;
 
   function mostrar(tela) {
     if (tela !== 'tela-aventura') sairTelaCheia();
@@ -202,17 +204,17 @@
     const destinoRegras = { x: estadoAventura.x, z: estadoAventura.z };
     const regraImpediuMovimento = Math.hypot(destinoRegras.x - xAntes, destinoRegras.z - zAntes) < .0001
       && Math.hypot(destinoPedido.x - xAntes, destinoPedido.z - zAntes) > .0001;
-    const destinoPedidoResolvido = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoPedido, .42);
+    const destinoPedidoResolvido = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoPedido, RAIO_COLISAO_HEROI);
     if (regraImpediuMovimento && Math.hypot(destinoPedidoResolvido.x - destinoPedido.x, destinoPedidoResolvido.z - destinoPedido.z) > .005) {
       destinoRegras.x = destinoPedidoResolvido.x; destinoRegras.z = destinoPedidoResolvido.z;
     }
-    const posicaoHeroiResolvida = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoRegras, .42);
+    const posicaoHeroiResolvida = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoRegras, RAIO_COLISAO_HEROI);
     estadoAventura.x = posicaoHeroiResolvida.x; estadoAventura.z = posicaoHeroiResolvida.z;
     // A IA mantém seu movimento original, mas cada passo é varrido contra a mesma lista de colisores.
     for (const inimigo of estadoAventura.inimigos) {
       const origem = posicoesInimigosAntes.get(inimigo.id);
       if (!origem || inimigo.vida <= 0) continue;
-      const posicao = renderizador.moverComColisao(origem, { x: inimigo.x, z: inimigo.z }, .36);
+      const posicao = renderizador.moverComColisao(origem, { x: inimigo.x, z: inimigo.z }, RAIO_COLISAO_INIMIGO);
       inimigo.x = posicao.x; inimigo.z = posicao.z;
     }
     const movimentoX = estadoAventura.x - xAntes, movimentoZ = estadoAventura.z - zAntes;
@@ -226,7 +228,7 @@
       const dxImpacto = inimigo.x - estadoAventura.x, dzImpacto = inimigo.z - estadoAventura.z;
       const distancia = Math.hypot(dxImpacto, dzImpacto) || 1;
       const destinoRecuo = { x: inimigo.x + dxImpacto / distancia * .3, z: inimigo.z + dzImpacto / distancia * .3 };
-      const recuoResolvido = renderizador.moverComColisao({ x: inimigo.x, z: inimigo.z }, destinoRecuo, .36);
+      const recuoResolvido = renderizador.moverComColisao({ x: inimigo.x, z: inimigo.z }, destinoRecuo, RAIO_COLISAO_INIMIGO);
       inimigo.x = recuoResolvido.x; inimigo.z = recuoResolvido.z;
       renderizador.dispararDanoInimigo(inimigo.id, dano);
     }

@@ -69,8 +69,31 @@
 
     const v = (x, y, z) => new T.Vector3(x, y, z);
     // Os colisores são derivados das próprias malhas; não repetimos posições ou tamanhos do cenário.
+    const MOSTRAR_COLISOES = false; // Mude para true para visualizar as caixas e círculos usados no jogo.
+    const FATOR_COLISOR_CENARIO = .78; // Colisores mais estreitos que as malhas visuais.
+    const ALTURA_CORPO_COLISAO = 1.8;
     const colisoresCenario = [];
     const limiteArena = 44;
+    const visualColisores = new T.Group(); visualColisores.name = 'depuracao-colisoes'; scene.add(visualColisores);
+    function criarVisualColisor(colisor) {
+      if (!MOSTRAR_COLISOES || colisor.visual) return;
+      if (colisor.tipo === 'circulo') {
+        const material = new T.MeshBasicMaterial({ color: 0xffb34a, side: T.DoubleSide, transparent: true, opacity: .45, depthTest: false });
+        colisor.visual = new T.Mesh(new T.RingGeometry(.97, 1, 32), material); colisor.visual.rotation.x = -Math.PI / 2; colisor.visual.position.y = .035; visualColisores.add(colisor.visual);
+      } else {
+        colisor.visual = new T.Box3Helper(new T.Box3(), 0xffb34a); colisor.visual.material.depthTest = false; colisor.visual.renderOrder = 10; visualColisores.add(colisor.visual);
+      }
+      atualizarVisualColisor(colisor);
+    }
+    function atualizarVisualColisor(colisor) {
+      if (!colisor.visual) return;
+      colisor.visual.visible = colisor.ativo !== false;
+      if (colisor.tipo === 'circulo') {
+        colisor.visual.position.set(colisor.x, .035, colisor.z); colisor.visual.scale.set(colisor.raio, 1, colisor.raio);
+      } else {
+        colisor.visual.box.min.set(colisor.minX, .035, colisor.minZ); colisor.visual.box.max.set(colisor.maxX, .045, colisor.maxZ); colisor.visual.updateMatrixWorld(true);
+      }
+    }
     function atualizarLimitesColisor(colisor, forcar = false) {
       const objeto = colisor.objeto;
       objeto.updateWorldMatrix(true, true);
@@ -78,21 +101,32 @@
       if (!forcar && !objeto.isGroup && colisor.matriz.equals(objeto.matrixWorld) && colisor.geometria === objeto.geometry) return;
       const caixa = new T.Box3().setFromObject(objeto);
       if (caixa.isEmpty()) return;
-      colisor.minX = caixa.min.x; colisor.maxX = caixa.max.x; colisor.minZ = caixa.min.z; colisor.maxZ = caixa.max.z;
+      const largura = caixa.max.x - caixa.min.x, profundidade = caixa.max.z - caixa.min.z;
+      // Ignora frestas, detalhes finos e peças totalmente acima/abaixo da altura do personagem.
+      colisor.ativo = caixa.min.y < ALTURA_CORPO_COLISAO && caixa.max.y > .12 && Math.min(largura, profundidade) >= .14;
       colisor.x = (caixa.min.x + caixa.max.x) * .5; colisor.z = (caixa.min.z + caixa.max.z) * .5;
-      if (colisor.tipo === 'circulo') colisor.raio = Math.max(caixa.max.x - caixa.min.x, caixa.max.z - caixa.min.z) * .5 + colisor.margem;
+      if (colisor.tipo === 'circulo') colisor.raio = Math.max(largura, profundidade) * .5 * FATOR_COLISOR_CENARIO + colisor.margem;
+      else {
+        const meiaLargura = largura * .5 * FATOR_COLISOR_CENARIO, meiaProfundidade = profundidade * .5 * FATOR_COLISOR_CENARIO;
+        colisor.minX = colisor.x - meiaLargura; colisor.maxX = colisor.x + meiaLargura;
+        colisor.minZ = colisor.z - meiaProfundidade; colisor.maxZ = colisor.z + meiaProfundidade;
+      }
       colisor.matriz.copy(objeto.matrixWorld); colisor.geometria = objeto.geometry;
+      atualizarVisualColisor(colisor);
     }
     function registrarColisorCaixa(objeto, condicao = null) {
       const colisor = { tipo: 'caixa', objeto, condicao, matriz: new T.Matrix4(), geometria: null };
-      atualizarLimitesColisor(colisor, true); colisoresCenario.push(colisor); return colisor;
+      atualizarLimitesColisor(colisor, true); criarVisualColisor(colisor); colisoresCenario.push(colisor); return colisor;
     }
     function registrarColisorCirculo(objeto, condicao = null, margem = 0) {
       const colisor = { tipo: 'circulo', objeto, condicao, margem, matriz: new T.Matrix4(), geometria: null };
-      atualizarLimitesColisor(colisor, true); colisoresCenario.push(colisor); return colisor;
+      atualizarLimitesColisor(colisor, true); criarVisualColisor(colisor); colisoresCenario.push(colisor); return colisor;
     }
     function sincronizarColisoresCenario() {
-      for (const colisor of colisoresCenario) atualizarLimitesColisor(colisor);
+      for (const colisor of colisoresCenario) {
+        atualizarLimitesColisor(colisor);
+        if (colisor.visual) colisor.visual.visible = colisor.ativo !== false && (!colisor.condicao || colisor.condicao());
+      }
     }
     function mesh(geometry, material, parent, pos = [0, 0, 0], scale = [1, 1, 1], cast = true) {
       const m = new T.Mesh(geometry, material); m.position.set(...pos); m.scale.set(...scale); m.castShadow = cast; m.receiveShadow = true; parent.add(m);
@@ -153,7 +187,7 @@
       link(bonfire, [0, .28, 0], [.02, 1.4, -.05], .075, mat.iron); link(bonfire, [-.31, .43, -.04], [.35, .43, -.04], .045, mat.iron); link(bonfire, [0, 1.35, -.05], [0, 1.54, -.05], .09, mat.gold);
       for (let i = 0; i < 6; i++) { const fire = mesh(coneGeo, mat.ember, bonfire, [(Math.random() - .5) * .28, .55 + Math.random() * .25, (Math.random() - .5) * .2], [.2, .7, .2]); fire.userData.phase = Math.random() * 7; }
       const fireLight = new T.PointLight(0xff6321, 55, 17, 1.8); fireLight.position.set(-3, 1.6, 6); scene.add(fireLight);
-      const colisorFogueira = registrarColisorCirculo(bonfire, null, .08);
+      const colisorFogueira = registrarColisorCirculo(bonfire, null, -.05);
       const sparkPositions = new Float32Array(24 * 3); const sparks = new T.BufferGeometry(); sparks.setAttribute('position', new T.BufferAttribute(sparkPositions, 3));
       const sparkPoints = new T.Points(sparks, new T.PointsMaterial({ color: 0xffad52, size: .08, transparent: true, opacity: .9 })); world.add(sparkPoints);
       for (let i = 0; i < 24; i++) sparkPositions[i * 3] = (Math.random() - .5) * .7;
@@ -168,7 +202,7 @@
 
     mat.ember.userData.semColisao = true;
     const scenery = criarCenario();
-    function colisorAtivo(colisor) { return !colisor.condicao || colisor.condicao(); }
+    function colisorAtivo(colisor) { return colisor.ativo !== false && (!colisor.condicao || colisor.condicao()); }
     function limitarAoMapa(pos, raio) {
       return { x: Math.max(-limiteArena + raio, Math.min(limiteArena - raio, pos.x)),
         z: Math.max(-limiteArena + raio, Math.min(limiteArena - raio, pos.z)) };
@@ -177,7 +211,7 @@
     function resolverColisaoHorizontal(pos, raio = .42) {
       sincronizarColisoresCenario();
       const resolvido = limitarAoMapa(pos, raio);
-      for (let passada = 0; passada < 8; passada++) {
+      for (let passada = 0; passada < 6; passada++) {
         let houveColisao = false;
         for (const c of colisoresCenario) {
           if (!colisorAtivo(c)) continue;
@@ -207,7 +241,7 @@
               houveColisao = true; continue;
             }
           }
-          resolvido.x += nx * (profundidade + .001); resolvido.z += nz * (profundidade + .001); houveColisao = true;
+          resolvido.x += nx * (profundidade + .004); resolvido.z += nz * (profundidade + .004); houveColisao = true;
         }
         const limitado = limitarAoMapa(resolvido, raio); resolvido.x = limitado.x; resolvido.z = limitado.z;
         if (!houveColisao) break;
