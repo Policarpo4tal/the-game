@@ -2,6 +2,16 @@
 (function (raiz) {
   'use strict';
 
+  // Brisa discreta: intensidade e opacidade baixas por padrão para não competir com o combate.
+  const CONFIG_VENTO = Object.freeze({
+    intensidade: .28,
+    velocidadeBase: 1.4,
+    direcaoX: .85,
+    direcaoZ: .52,
+    opacidadeParticulas: .12,
+    quantidadeParticulas: 42
+  });
+
   function criarTexturasProcedurais() {
     const gerar = (tipo, tamanho = 512) => {
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = tamanho;
@@ -45,8 +55,8 @@
     const renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'low-power' });
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.35)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
     renderer.outputColorSpace = T.SRGBColorSpace; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
-    const scene = new T.Scene(); scene.background = new T.Color(0x171b24); scene.fog = new T.FogExp2(0x252b35, .0135);
-    const camera = new T.PerspectiveCamera(55, 1, .1, 120);
+    const scene = new T.Scene(); scene.background = new T.Color(0x202630); scene.fog = new T.FogExp2(0x252b35, .0085);
+    const camera = new T.PerspectiveCamera(55, 1, .1, 180);
     const controls = { yaw: 0, pitch: .3, distance: 8.5, target: new T.Vector3(0, 1.15, 2) };
     const textures = criarTexturasProcedurais();
     Object.values(textures.chao).forEach(t => { if (t.repeat) t.repeat.set(9, 9); });
@@ -318,6 +328,24 @@
       return { tufos, bandeiras, braseiros, pedrinhas, solidos, visuais };
     }
 
+    // Pequenos pontos cinza-azulados viajam devagar e reciclam dentro da área visível.
+    function criarParticulasVento(cena) {
+      const grupo = new T.Group(); grupo.name = 'brisa-ambiente'; grupo.userData.registrarSolidos = false; cena.add(grupo);
+      const quantidade = CONFIG_VENTO.quantidadeParticulas;
+      const dados = new Float32Array(quantidade * 3), fases = new Float32Array(quantidade);
+      for (let i = 0; i < quantidade; i++) {
+        dados[i * 3] = (numeroDeterministico(i, 44) - .5) * 48;
+        dados[i * 3 + 1] = .7 + numeroDeterministico(i, 45) * 3.6;
+        dados[i * 3 + 2] = (numeroDeterministico(i, 46) - .5) * 48;
+        fases[i] = numeroDeterministico(i, 47) * Math.PI * 2;
+      }
+      const geometria = new T.BufferGeometry(); geometria.setAttribute('position', new T.BufferAttribute(dados, 3));
+      const material = new T.PointsMaterial({ color: 0x8d9aa1, size: .045, sizeAttenuation: true,
+        transparent: true, opacity: CONFIG_VENTO.opacidadeParticulas, depthWrite: false, toneMapped: true });
+      const pontos = new T.Points(geometria, material); pontos.frustumCulled = false; pontos.renderOrder = 1; grupo.add(pontos);
+      return { grupo, pontos, dados, fases, geometria };
+    }
+
     function criarCenario() {
       const world = new T.Group(); scene.add(world);
       world.userData.registrarSolidos = true;
@@ -384,6 +412,61 @@
     const scenery = criarCenario();
     scenery.montanhas = criarMontanhasHorizonte(scene, textures);
     scenery.detalhes = popularDetalhesCenario(scene, textures);
+    const vento = criarParticulasVento(scene);
+    let balancoVentoHeroi = 0;
+    function atualizarVentoAmbiente(dt, tempoTotal) {
+      const delta = Math.min(.1, Math.max(0, dt || 0));
+      const tempo = Math.max(0, tempoTotal || 0), intensidade = Math.max(0, CONFIG_VENTO.intensidade);
+      const visibilidadeBrisa = Math.min(1, intensidade / .28);
+      const direcaoComprimento = Math.hypot(CONFIG_VENTO.direcaoX, CONFIG_VENTO.direcaoZ) || 1;
+      const direcaoX = CONFIG_VENTO.direcaoX / direcaoComprimento, direcaoZ = CONFIG_VENTO.direcaoZ / direcaoComprimento;
+      const faseGeral = tempo * CONFIG_VENTO.velocidadeBase;
+      const onda = Math.sin(faseGeral) * .72 + Math.sin(faseGeral * .43 + .8) * .28;
+
+      // O campo de partículas acompanha a câmera e deriva lentamente, sem brilho emissivo.
+      vento.grupo.position.set(controls.target.x, 0, controls.target.z);
+      const deslocamento = CONFIG_VENTO.velocidadeBase * intensidade * delta;
+      for (let i = 0; i < vento.fases.length; i++) {
+        const indice = i * 3, fase = faseGeral + vento.fases[i];
+        vento.dados[indice] += direcaoX * deslocamento;
+        vento.dados[indice + 2] += direcaoZ * deslocamento;
+        if (vento.dados[indice] > 24) vento.dados[indice] -= 48;
+        else if (vento.dados[indice] < -24) vento.dados[indice] += 48;
+        if (vento.dados[indice + 2] > 24) vento.dados[indice + 2] -= 48;
+        else if (vento.dados[indice + 2] < -24) vento.dados[indice + 2] += 48;
+        vento.dados[indice + 1] = .7 + numeroDeterministico(i, 45) * 3.6 + Math.sin(fase) * .014 * intensidade;
+      }
+      vento.geometria.attributes.position.needsUpdate = true;
+      vento.pontos.visible = visibilidadeBrisa > 0;
+      vento.pontos.material.opacity = CONFIG_VENTO.opacidadeParticulas * visibilidadeBrisa * (.82 + .18 * (.5 + .5 * onda));
+
+      for (const tufo of scenery.detalhes.tufos) {
+        const fase = faseGeral + tufo.userData.faseVento + (tufo.position.x * direcaoX + tufo.position.z * direcaoZ) * .035;
+        const amplitude = tufo.userData.amplitudeVento * intensidade;
+        tufo.rotation.z = Math.sin(fase) * amplitude;
+        tufo.rotation.x = Math.cos(fase * .73) * amplitude * .24;
+      }
+      for (const { malha, fase } of scenery.detalhes.bandeiras) {
+        malha.rotation.z = Math.sin(faseGeral + fase) * .035 * intensidade;
+      }
+      for (const { chama, luz, fase } of scenery.detalhes.braseiros) {
+        const oscilacao = Math.sin(faseGeral * 1.2 + fase);
+        chama.scale.y = .96 + .035 * oscilacao;
+        luz.intensity = 10.5 + .7 * oscilacao;
+      }
+      // Vento inclina levemente a capa e acompanha as oscilações já presentes nas chamas.
+      balancoVentoHeroi = onda * intensidade;
+      scenery.flickers.forEach(({ flame, light, phase }) => {
+        const pulso = Math.sin(faseGeral * 1.15 + phase);
+        flame.scale.y = .96 + .035 * pulso;
+        light.intensity = 37 + 1.1 * pulso;
+      });
+      scenery.fireLight.intensity = 45 + 3 * Math.sin(faseGeral * .8);
+      for (const fogo of scenery.bonfire.children) if (fogo.userData.phase !== undefined) {
+        fogo.scale.y = .92 + .07 * Math.sin(faseGeral * 1.05 + fogo.userData.phase);
+        fogo.rotation.z = Math.sin(faseGeral * .75 + fogo.userData.phase) * .025;
+      }
+    }
     function colisorAtivo(colisor) { return colisor.ativo !== false && (!colisor.condicao || colisor.condicao()); }
     function limitarAoMapa(pos, raio) {
       return { x: Math.max(-limiteArena + raio, Math.min(limiteArena - raio, pos.x)),
@@ -597,9 +680,14 @@
       animHeroi.tempo += dt;
       animHeroi.ataque = Math.min(animHeroi.duracaoAtaque, animHeroi.ataque + dt);
       const atacando = animHeroi.ataque < animHeroi.duracaoAtaque;
-      const movimentoDesejado = estadoHeroi.movendo ? (estadoHeroi.correndo ? 1 : .58) : 0;
-      animHeroi.movimento = aproximar(animHeroi.movimento, atacando ? 0 : movimentoDesejado, dt, 11);
-      animHeroi.correndo = estadoHeroi.correndo;
+      const esquivando = Boolean(estadoHeroi.esquiva?.ativa);
+      const faseEsquiva = estadoHeroi.esquiva?.progresso || 0;
+      const impulsoEsquiva = esquivando ? Math.sin(Math.PI * faseEsquiva) : 0;
+      const ladoEsquiva = estadoHeroi.esquiva
+        ? estadoHeroi.esquiva.dirX * Math.cos(hero.rotation.y) - estadoHeroi.esquiva.dirZ * Math.sin(hero.rotation.y) : 0;
+      const movimentoDesejado = estadoHeroi.movendo && !esquivando ? (estadoHeroi.correndo ? 1 : .58) : 0;
+      animHeroi.movimento = aproximar(animHeroi.movimento, atacando || esquivando ? 0 : movimentoDesejado, dt, 11);
+      animHeroi.correndo = estadoHeroi.correndo && !esquivando;
       const velocidadePasso = animHeroi.correndo ? 11.2 : 7.2;
       animHeroi.fasePasso += dt * velocidadePasso;
       const ciclo = Math.sin(animHeroi.fasePasso);
@@ -616,21 +704,22 @@
         else if (fase < .62) { const t = suave((fase - .22) / .4); golpeBracoX = -.78 + 1.95 * t; golpeBracoZ = -.62 + 1.18 * t; golpeArmaZ = -.15 + .92 * t; giroTronco = -.2 + .54 * t; avancar = Math.sin(Math.PI * (fase - .22) / .4) * .2; }
         else { const t = suave((fase - .62) / .38); golpeBracoX = 1.17 * (1 - t); golpeBracoZ = .56 * (1 - t); golpeArmaZ = .77 * (1 - t); giroTronco = .34 * (1 - t); }
       }
-      parts.legs[0].rotation.x = aproximar(parts.legs[0].rotation.x, passo * .68, dt);
-      parts.legs[1].rotation.x = aproximar(parts.legs[1].rotation.x, -passo * .68, dt);
-      parts.arms[0].rotation.x = aproximar(parts.arms[0].rotation.x, -passo * .34 + golpeBracoX * .12, dt);
-      parts.arms[1].rotation.x = aproximar(parts.arms[1].rotation.x, passo * .32 + balancoArma + golpeBracoX, dt, 18);
-      parts.arms[0].rotation.z = aproximar(parts.arms[0].rotation.z, 0, dt);
-      parts.arms[1].rotation.z = aproximar(parts.arms[1].rotation.z, golpeBracoZ, dt, 18);
+      parts.legs[0].rotation.x = aproximar(parts.legs[0].rotation.x, esquivando ? -.8 * impulsoEsquiva : passo * .68, dt);
+      parts.legs[1].rotation.x = aproximar(parts.legs[1].rotation.x, esquivando ? .65 * impulsoEsquiva : -passo * .68, dt);
+      parts.arms[0].rotation.x = aproximar(parts.arms[0].rotation.x, esquivando ? -.9 * impulsoEsquiva : -passo * .34 + golpeBracoX * .12, dt);
+      parts.arms[1].rotation.x = aproximar(parts.arms[1].rotation.x, esquivando ? -.72 * impulsoEsquiva : passo * .32 + balancoArma + golpeBracoX, dt, 18);
+      parts.arms[0].rotation.z = aproximar(parts.arms[0].rotation.z, esquivando ? -.22 * impulsoEsquiva : 0, dt);
+      parts.arms[1].rotation.z = aproximar(parts.arms[1].rotation.z, esquivando ? .22 * impulsoEsquiva : golpeBracoZ, dt, 18);
       parts.weapon.rotation.z = aproximar(parts.weapon.rotation.z, golpeArmaZ + balancoArma, dt, 20);
-      parts.torso.rotation.x = aproximar(parts.torso.rotation.x, -.025 - pesoCorrida * .09 + (atacando ? -.06 * Math.sin(Math.PI * fase) : 0), dt, 9);
+      parts.torso.rotation.x = aproximar(parts.torso.rotation.x, -.025 - pesoCorrida * .09 + (atacando ? -.06 * Math.sin(Math.PI * fase) : 0) - .42 * impulsoEsquiva, dt, esquivando ? 18 : 9);
       parts.torso.rotation.y = aproximar(parts.torso.rotation.y, giroTronco, dt, 16);
-      parts.torso.position.y = 0;
+      parts.torso.rotation.z = aproximar(parts.torso.rotation.z, esquivando ? ladoEsquiva * .2 * impulsoEsquiva : 0, dt, esquivando ? 18 : 8);
+      parts.torso.position.y = esquivando ? -.08 * impulsoEsquiva : 0;
       parts.torso.scale.y = 1 + respiracao * .008;
       parts.head.rotation.x = aproximar(parts.head.rotation.x, -.018 + respiracao * .012, dt, 7);
-      parts.cape.rotation.x = aproximar(parts.cape.rotation.x, -.045 + Math.abs(passo) * .16 + Math.sin(animHeroi.tempo * 2.3) * .035, dt, 5);
-      parts.cape.rotation.z = aproximar(parts.cape.rotation.z, Math.sin(animHeroi.fasePasso) * caminhada * .12 + Math.sin(animHeroi.tempo * 1.4) * .025, dt, 5);
-      hero.position.y = estadoHeroi.salto + Math.abs(ciclo) * caminhada * (animHeroi.correndo ? .055 : .025);
+      parts.cape.rotation.x = aproximar(parts.cape.rotation.x, -.045 + Math.abs(passo) * .16 + Math.sin(animHeroi.tempo * 2.3) * .035 + balancoVentoHeroi * .018, dt, 5);
+      parts.cape.rotation.z = aproximar(parts.cape.rotation.z, Math.sin(animHeroi.fasePasso) * caminhada * .12 + Math.sin(animHeroi.tempo * 1.4) * .025 + balancoVentoHeroi * .022, dt, 5);
+      hero.position.y = estadoHeroi.salto + Math.abs(ciclo) * caminhada * (animHeroi.correndo ? .055 : .025) - .1 * impulsoEsquiva;
       hero.position.x = estadoHeroi.x; hero.position.z = estadoHeroi.z;
       const deltaYawHeroi = Math.atan2(Math.sin(estadoHeroi.angulo - hero.rotation.y), Math.cos(estadoHeroi.angulo - hero.rotation.y));
       hero.rotation.y += deltaYawHeroi * (1 - Math.exp(-14 * dt));
@@ -639,7 +728,7 @@
       slash.material.opacity = slash.visible ? Math.sin(Math.PI * suave((fase - .24) / .43)) * .68 : 0;
       slash.rotation.z = -.65 + (fase - .24) * 3.2;
       slash.rotation.y = -.35 + (fase - .24) * 2.1;
-      parts.footRing.material.opacity = .36 + Math.sin(animHeroi.tempo * 2.5) * .045;
+      parts.footRing.material.opacity = estadoHeroi.esquiva?.invencivel ? .52 : .36 + Math.sin(animHeroi.tempo * 2.5) * .045;
     }
     function atualizarAnimacaoInimigo(dt, inimigo, distancia, angulo) {
       if (!enemies.has(inimigo.id)) {
@@ -690,7 +779,7 @@
       controls.target.lerp(alvoCamera, 1 - Math.exp(-9 * dt));
       const horizontal = controls.distance * Math.cos(controls.pitch); camera.position.set(controls.target.x + Math.sin(controls.yaw) * horizontal, controls.target.y + controls.distance * Math.sin(controls.pitch), controls.target.z + Math.cos(controls.yaw) * horizontal); camera.lookAt(controls.target);
       ajustarCameraContraCenario(); camera.lookAt(controls.target);
-      atualizarAnimacaoHeroi(dt, { x: estado.x, z: estado.z, angulo: anguloPersonagem, salto, movendo: movendo && velocidade > .15, correndo });
+      atualizarAnimacaoHeroi(dt, { x: estado.x, z: estado.z, angulo: anguloPersonagem, salto, movendo: movendo && velocidade > .15, correndo, esquiva: quadro.esquiva });
       for (const e of estado.inimigos) {
         const distancia = Math.hypot(e.x - estado.x, e.z - estado.z); const angulo = Math.atan2(estado.x - e.x, -(estado.z - e.z));
         atualizarAnimacaoInimigo(dt, e, distancia, angulo);
@@ -701,16 +790,13 @@
         if (health.lockMarker.visible) { health.lockMarker.quaternion.copy(camera.quaternion); health.lockMarker.rotation.z += dt * 1.7; }
       }
       const tempo = inimigosAnimacao.get(estado.inimigos[0]?.id)?.tempo || 0;
-      scenery.flickers.forEach(({ flame, light, phase }) => { const pulse = .82 + .18 * Math.sin(tempo * 1.5 + phase); flame.scale.y = pulse; light.intensity = 26 + 12 * pulse; });
-      scenery.fireLight.intensity = 46 + 12 * Math.sin(tempo * 1.1);
-      for (const fire of scenery.bonfire.children) if (fire.userData.phase !== undefined) { fire.scale.y = .75 + .35 * Math.sin(tempo * 1.8 + fire.userData.phase); fire.rotation.z = Math.sin(tempo * 1.3 + fire.userData.phase) * .12; }
       for (let i = 0; i < 24; i++) { const t = (tempo * .35 + i * .173) % 1; scenery.sparkPositions[i * 3] = Math.sin(i * 12.3 + tempo * .35) * .36; scenery.sparkPositions[i * 3 + 1] = .32 + t * 1.9; scenery.sparkPositions[i * 3 + 2] = Math.cos(i * 8.8 + tempo * .35) * .34; }
       scenery.sparks.attributes.position.needsUpdate = true;
       const chestNear = !estado.bausAberto && Math.hypot(estado.x - 18, estado.z - 18) < 4.5;
       scenery.chest.visible = !estado.bausAberto; scenery.aura.intensity = chestNear ? 8 + Math.sin(tempo * 1.8) * 2 : .5;
       renderer.render(scene, camera);
     }
-    return { desenhar, moverCamera, moverCameraComAnalogo, orientarMovimento, orientarMovimentoComMira, definirAlvoMira, pontuarAlinhamentoMira,
+    return { desenhar, atualizarVentoAmbiente, moverCamera, moverCameraComAnalogo, orientarMovimento, orientarMovimentoComMira, definirAlvoMira, pontuarAlinhamentoMira,
       dispararAnimacaoAtaqueHeroi, dispararDanoInimigo,
       resolverColisaoHorizontal, moverComColisao, get colisoresCenario() { return colisoresCenario.slice(); } };
   }

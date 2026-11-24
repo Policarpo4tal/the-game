@@ -18,10 +18,14 @@
   let frameMundo = 0;
   let frameGamepadMenu = 0;
   let tempoAnterior = 0;
+  let tempoAmbiente = 0;
   let salvarDecorrido = 0;
   let saltoDecorrido = 0;
   let ataqueSolicitado = false;
   let puloSolicitado = false;
+  let esquivaSolicitada = false;
+  const esquiva = { ativa: false, decorrido: 0, cooldown: 0, dirX: 0, dirZ: -1 };
+  const CONFIG_ESQUIVA = Object.freeze({ duracao: .4, velocidadeInicial: 18, janelaInvencibilidadeInicio: .15, janelaInvencibilidadeFim: .75, cooldown: .68 });
   let interacaoSolicitada = false;
   let alvoMiraId = null;
   let controlMiraPressionado = false;
@@ -54,6 +58,29 @@
   const ALCANCE_MIRA = 22;
   const DEADZONE_GAMEPAD = .16;
   const DEBUG_GAMEPAD = false;
+
+  function iniciarEsquiva(dx, dz, anguloAlvo = anguloHeroi) {
+    const comprimento = Math.hypot(dx, dz);
+    if (comprimento > .08) { esquiva.dirX = dx / comprimento; esquiva.dirZ = dz / comprimento; }
+    else { esquiva.dirX = -Math.sin(anguloAlvo); esquiva.dirZ = -Math.cos(anguloAlvo); }
+    esquiva.ativa = true; esquiva.decorrido = 0;
+  }
+
+  // Passos curtos impedem que o impulso rápido salte por cima de colisores estreitos.
+  function moverEsquivaComColisao(origem, dirX, dirZ, distancia, raio) {
+    const passos = Math.max(1, Math.ceil(Math.abs(distancia) / .12));
+    const passoX = dirX * distancia / passos, passoZ = dirZ * distancia / passos;
+    let posicao = { x: origem.x, z: origem.z };
+    for (let i = 0; i < passos; i++) {
+      posicao = renderizador.moverComColisao(posicao, { x: posicao.x + passoX, z: posicao.z + passoZ }, raio);
+    }
+    return posicao;
+  }
+
+  function estaInvencivelEsquivando(progresso) {
+    return esquiva.ativa && progresso >= CONFIG_ESQUIVA.janelaInvencibilidadeInicio
+      && progresso <= CONFIG_ESQUIVA.janelaInvencibilidadeFim;
+  }
 
   // A Gamepad API pode devolver valores pequenos mesmo com o analógico solto.
   // A faixa restante é reescalada para continuar atingindo o curso completo.
@@ -127,7 +154,8 @@
       interagir: interagir && !estadoBotoesGamepad[3],
       alternarMira: acaoMira && !miraAnterior,
       confirmar,
-      cancelar
+      cancelar,
+      esquivar: botao(1) && !estadoBotoesGamepad[1]
     };
     estadoBotoesGamepad = atuais;
     if (DEBUG_GAMEPAD) {
@@ -147,6 +175,7 @@
     if (!entrada) return { dx: 0, dz: 0 };
     if (entrada.atacar) { ataqueSolicitado = true; prepararAudio(); }
     if (entrada.pular) puloSolicitado = true;
+    if (entrada.esquivar) esquivaSolicitada = true;
     if (entrada.interagir) interacaoSolicitada = true;
     if (entrada.alternarMira) alternarTravaMira();
     // O analógico direito controla yaw/pitch livre; no lock-on a câmera já segue o alvo.
@@ -303,6 +332,7 @@
     mostrar('tela-aventura');
     $('tela-falha-3d').hidden = true;
     tempoAnterior = performance.now();
+    tempoAmbiente = 0;
     salvarDecorrido = 0;
     atualizaHud();
     salvarAventura();
@@ -382,6 +412,8 @@
     const dtMs = Math.min(100, Math.max(0, agora - tempoAnterior));
     const dt = dtMs / 1000;
     tempoAnterior = agora;
+    tempoAmbiente += dt;
+    renderizador.atualizarVentoAmbiente(dt, tempoAmbiente);
     const entradaGamepad = processarEntradasGamepad(dt);
     const esquerda = teclas.has('a') || teclas.has('arrowleft');
     const direita = teclas.has('d') || teclas.has('arrowright');
@@ -394,7 +426,18 @@
     const movimentoOrientado = alvoTravado
       ? renderizador.orientarMovimentoComMira(dxLocal, dzLocal, estadoAventura.x, estadoAventura.z, alvoTravado.x, alvoTravado.z)
       : renderizador.orientarMovimento(dxLocal, dzLocal);
-    const { dx, dz } = movimentoOrientado;
+    let { dx, dz } = movimentoOrientado;
+    esquiva.cooldown = Math.max(0, esquiva.cooldown - dt);
+    if (esquivaSolicitada && !esquiva.ativa && esquiva.cooldown <= 0) {
+      const anguloAlvo = alvoTravado
+        ? Math.atan2(-(alvoTravado.x - estadoAventura.x), -(alvoTravado.z - estadoAventura.z)) : anguloHeroi;
+      iniciarEsquiva(dx, dz, anguloAlvo);
+    }
+    esquivaSolicitada = false;
+    const esquivaAtiva = esquiva.ativa;
+    const progressoEsquiva = esquivaAtiva ? Math.min(1, esquiva.decorrido / CONFIG_ESQUIVA.duracao) : 0;
+    const iFramesEsquiva = estaInvencivelEsquivando(progressoEsquiva);
+    if (esquivaAtiva) { dx = 0; dz = 0; }
     const xAntes = estadoAventura.x, zAntes = estadoAventura.z;
     const bauAntes = estadoAventura.bausAberto;
     const abatesAntes = estadoAventura.inimigosDerrotados;
@@ -406,10 +449,16 @@
     const correndo = teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim' || gamepadCorrendo;
     const velocidade = correndo ? 8 : 5;
     const comprimentoEntrada = Math.hypot(dx, dz) || 1;
-    const destinoPedido = { x: xAntes + dx / comprimentoEntrada * velocidade * dt,
-      z: zAntes + dz / comprimentoEntrada * velocidade * dt };
+    const suavizarEsquiva = (t) => 1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 3);
+    const pEsquivaFim = Math.min(1, (esquiva.decorrido + dt) / CONFIG_ESQUIVA.duracao);
+    const distanciaEsquiva = CONFIG_ESQUIVA.velocidadeInicial * CONFIG_ESQUIVA.duracao / 3
+      * (suavizarEsquiva(pEsquivaFim) - suavizarEsquiva(progressoEsquiva));
+    const destinoPedido = esquivaAtiva
+      ? { x: Math.max(-44, Math.min(44, xAntes + esquiva.dirX * distanciaEsquiva)), z: Math.max(-44, Math.min(44, zAntes + esquiva.dirZ * distanciaEsquiva)) }
+      : { x: xAntes + dx / comprimentoEntrada * velocidade * dt, z: zAntes + dz / comprimentoEntrada * velocidade * dt };
+    if (iFramesEsquiva) estadoAventura.invulneravel = Math.max(estadoAventura.invulneravel || 0, dt + .001);
     estadoAventura = Regras.rpgAtualizar(estadoAventura, {
-      dx, dz, correr: correndo,
+      dx, dz, correr: esquivaAtiva ? false : correndo,
       atacar: ataqueSolicitado, pular: puloSolicitado, interagir: interacaoSolicitada
     }, dtMs, Math.random);
     // Regras continua sendo a autoridade do combate; o renderer resolve o deslocamento
@@ -417,7 +466,9 @@
     const destinoRegras = { x: estadoAventura.x, z: estadoAventura.z };
     const regraImpediuMovimento = Math.hypot(destinoRegras.x - xAntes, destinoRegras.z - zAntes) < .0001
       && Math.hypot(destinoPedido.x - xAntes, destinoPedido.z - zAntes) > .0001;
-    const destinoPedidoResolvido = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoPedido, RAIO_COLISAO_HEROI);
+    const destinoPedidoResolvido = esquivaAtiva
+      ? moverEsquivaComColisao({ x: xAntes, z: zAntes }, esquiva.dirX, esquiva.dirZ, distanciaEsquiva, RAIO_COLISAO_HEROI)
+      : renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoPedido, RAIO_COLISAO_HEROI);
     const pedidoNoVaoDoArco = Math.abs(destinoPedido.z - PORTAO_ARCO_Z) < MEIA_FAIXA_PORTAO_ARCO
       && Math.abs(destinoPedido.x) < MEIA_LARGURA_LIVRE_ARCO;
     const bloqueadoPeloCenario = Math.hypot(destinoPedidoResolvido.x - destinoPedido.x, destinoPedidoResolvido.z - destinoPedido.z) > .005;
@@ -426,8 +477,16 @@
     if (regraImpediuMovimento && (pedidoNoVaoDoArco || bloqueadoPeloCenario)) {
       destinoRegras.x = destinoPedidoResolvido.x; destinoRegras.z = destinoPedidoResolvido.z;
     }
+    // A esquiva já usa o mesmo resolvedor físico; as regras puras continuam cuidando do combate.
+    if (esquivaAtiva) { destinoRegras.x = destinoPedidoResolvido.x; destinoRegras.z = destinoPedidoResolvido.z; }
     const posicaoHeroiResolvida = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoRegras, RAIO_COLISAO_HEROI);
     estadoAventura.x = posicaoHeroiResolvida.x; estadoAventura.z = posicaoHeroiResolvida.z;
+    if (esquivaAtiva) {
+      esquiva.decorrido += dt;
+      if (esquiva.decorrido >= CONFIG_ESQUIVA.duracao) {
+        esquiva.ativa = false; esquiva.cooldown = CONFIG_ESQUIVA.cooldown;
+      }
+    }
     // A IA mantém seu movimento original, mas cada passo é varrido contra a mesma lista de colisores.
     for (const inimigo of estadoAventura.inimigos) {
       const origem = posicoesInimigosAntes.get(inimigo.id);
@@ -437,6 +496,7 @@
     }
     const movimentoX = estadoAventura.x - xAntes, movimentoZ = estadoAventura.z - zAntes;
     if (alvoTravado) anguloHeroi = Math.atan2(-(alvoTravado.x - estadoAventura.x), -(alvoTravado.z - estadoAventura.z));
+    else if (esquivaAtiva) anguloHeroi = Math.atan2(-esquiva.dirX, -esquiva.dirZ);
     else if (Math.hypot(movimentoX,movimentoZ) > .0001) anguloHeroi = Math.atan2(-movimentoX,-movimentoZ);
     if (ataqueIniciado) renderizador.dispararAnimacaoAtaqueHeroi();
     ataqueSolicitado = false;
@@ -468,7 +528,8 @@
     saltoDecorrido = Math.max(0, saltoDecorrido - dt);
     const alturaSalto = saltoDecorrido > 0 ? Math.sin((.55 - saltoDecorrido) / .55 * Math.PI) * .8 : 0;
     renderizador.desenhar(estadoAventura, {
-      salto: alturaSalto, deltaSegundos: dt, anguloHeroi, correndo,
+      salto: alturaSalto, deltaSegundos: dt, anguloHeroi, correndo: correndo && !esquivaAtiva,
+      esquiva: { ativa: esquivaAtiva, progresso: progressoEsquiva, invencivel: iFramesEsquiva, dirX: esquiva.dirX, dirZ: esquiva.dirZ },
       movendo: Math.hypot(movimentoX, movimentoZ) > .0001,
       velocidade: Math.hypot(movimentoX, movimentoZ) / Math.max(dt, .001)
     });
@@ -519,6 +580,7 @@
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((tipo) => $('botao-correr').addEventListener(tipo, () => { $('botao-correr').dataset.pressionado = ''; }));
   $('botao-atacar').addEventListener('pointerdown', (e) => { e.preventDefault(); prepararAudio(); ataqueSolicitado = true; });
   $('botao-pular').addEventListener('pointerdown', (e) => { e.preventDefault(); puloSolicitado = true; });
+  $('botao-esquivar').addEventListener('pointerdown', (e) => { e.preventDefault(); esquivaSolicitada = true; });
   $('botao-interagir').addEventListener('pointerdown', (e) => { e.preventDefault(); interacaoSolicitada = true; });
   window.addEventListener('keydown', (e) => {
     if ($('tela-aventura').hidden) return;
@@ -530,6 +592,7 @@
       return;
     }
     const k = e.key.toLowerCase();
+    if (k === 'q' && !teclas.has(k)) { e.preventDefault(); esquivaSolicitada = true; }
     if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
     if (!teclas.has(k) && (k === 'j' || k === ' ' || k === 'e')) { ataqueSolicitado = k === 'j'; if (k === 'j') prepararAudio(); if (k === ' ') puloSolicitado = true; if (k === 'e') interacaoSolicitada = true; }
     teclas.add(k);
