@@ -27,6 +27,8 @@ body { background: radial-gradient(circle at top, #f7d9a8, var(--cor)); color: v
 progress { width: min(190px, 45vw); height: 14px; accent-color: #bb3430; }
 #hud-xp { accent-color: #5aa3d1; }
 .hud-dados { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .84rem; }
+.hud-mira { display: inline-block; margin-top: 4px; padding: 3px 7px; border: 1px solid #d9b75b; border-radius: 7px; background: #302719df; color: #ffe6a1; font-size: .8rem; }
+.hud-mira[hidden] { display: none !important; }
 .hud-inimigo { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 9px; margin-top: 4px; padding: 4px 7px; border: 1px solid #b95d50; border-radius: 7px; background: #351c1bd9; font-size: .82rem; }
 .hud-inimigo[hidden] { display: none !important; }
 #hud-inimigo-vida { width: min(150px, 35vw); height: 12px; accent-color: #ef5148; }

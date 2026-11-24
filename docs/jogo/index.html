@@ -35,13 +35,14 @@
       <button id="botao-continuar" class="botao" type="button" hidden>Continuar aventura salva</button>
       <button id="botao-jogar" class="botao" type="button">Criar herói e explorar</button>
       <button id="botao-treino" class="botao botao-secundario" type="button">Treino de alvos</button>
-      <details class="ajuda"><summary>Controles da aventura</summary><p>No computador: WASD/setas para andar em relação à câmera, Shift para correr, Espaço para pular, botão esquerdo para atacar, botão direito e arraste para girar a câmera, roda do mouse para aproximar ou afastar e E para abrir o baú. No celular, use o direcional e os botões na tela; deslize sobre o mundo para mover a câmera e use dois dedos para aproximar ou afastar.</p></details>
+      <details class="ajuda"><summary>Controles da aventura</summary><p>No computador: WASD/setas para andar em relação à câmera, Ctrl para travar/destravar a mira no inimigo visível mais alinhado, Shift para correr, Espaço para pular, botão esquerdo para atacar, botão direito e arraste para girar a câmera, roda do mouse para aproximar ou afastar e E para abrir o baú. Com a mira travada, frente/trás aproxima ou afasta e esquerda/direita circula o alvo. No celular, use o direcional e os botões na tela; deslize sobre o mundo para mover a câmera e use dois dedos para aproximar ou afastar.</p></details>
     </section>
     <section id="tela-aventura" class="tela tela-mundo" hidden aria-label="Aventura 3D">
       <div class="hud-mundo">
         <div class="identidade"><strong id="hud-nome">Herói</strong> · Nv. <strong id="hud-nivel">1</strong> · <span id="hud-classe">Guerreiro</span></div>
         <div class="barras"><label>❤️ <progress id="hud-vida" max="100" value="100"></progress> <span id="hud-vida-texto"></span></label><label>✨ <progress id="hud-xp" max="100" value="0"></progress> <span id="hud-xp-texto"></span></label></div>
         <div class="hud-dados"><span>🪙 <strong id="hud-moedas">0</strong></span><span>☠️ <strong id="hud-abates">0</strong></span><span id="hud-missao">Missão: derrote as criaturas (0/3)</span></div>
+        <div id="hud-mira" class="hud-mira" hidden>🔒 Mira travada: <strong id="hud-mira-alvo"></strong> · Ctrl destrava</div>
         <div id="hud-inimigo" class="hud-inimigo" hidden><span>🎯 <strong id="hud-inimigo-nome"></strong></span><span>Nv. <strong id="hud-inimigo-nivel"></strong></span><progress id="hud-inimigo-vida" max="5" value="5"></progress><span id="hud-inimigo-vida-texto"></span></div>
         <p id="hud-mensagem" aria-live="polite">Explore e proteja a vila.</p>
       </div>

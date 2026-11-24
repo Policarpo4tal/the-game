@@ -22,6 +22,9 @@
   let ataqueSolicitado = false;
   let puloSolicitado = false;
   let interacaoSolicitada = false;
+  let alvoMiraId = null;
+  let controlMiraPressionado = false;
+  const controlesMiraAbaixo = new Set();
   let joystick = { dx: 0, dz: 0 };
   const cameraPointers = new Map();
   let distanciaToqueCamera = null;
@@ -34,6 +37,13 @@
   const classes = Object.keys(Regras.CLASSES);
   const RAIO_COLISAO_HEROI = .3;
   const RAIO_COLISAO_INIMIGO = .25;
+  // A parede de regras em z=-32 deixa um vão estreito (|x|<2.4).
+  // O vão visual entre as colunas do arco é maior; este limite deixa folga
+  // até o núcleo sólido das colunas, cujos colisores continuam no Mundo3D.
+  const PORTAO_ARCO_Z = -32;
+  const MEIA_FAIXA_PORTAO_ARCO = 1.35;
+  const MEIA_LARGURA_LIVRE_ARCO = 5;
+  const ALCANCE_MIRA = 22;
 
   function mostrar(tela) {
     if (tela !== 'tela-aventura') sairTelaCheia();
@@ -131,6 +141,11 @@
       estadoAventura = Regras.rpgNovaAventura(nome, classe);
     } else if (!estadoAventura || estadoAventura.acabou) return;
     if (!montarRenderizador()) { mostrar('tela-aventura'); return; }
+    alvoMiraId = null;
+    controlMiraPressionado = false;
+    controlesMiraAbaixo.clear();
+    renderizador.definirAlvoMira(null);
+    atualizarHudMira();
     mostrar('tela-aventura');
     $('tela-falha-3d').hidden = true;
     tempoAnterior = performance.now();
@@ -170,6 +185,44 @@
       $('hud-inimigo-vida-texto').textContent = `${Math.ceil(inimigo.vida)}/${inimigo.maxVida} HP`;
     }
   }
+  function atualizarHudMira() {
+    const painel = $('hud-mira');
+    const alvo = estadoAventura?.inimigos.find((inimigo) => inimigo.id === alvoMiraId && inimigo.vida > 0);
+    painel.hidden = !alvo;
+    if (alvo) $('hud-mira-alvo').textContent = alvo.nome;
+  }
+  function sincronizarAlvoMira() {
+    const alvo = estadoAventura?.inimigos.find((inimigo) => inimigo.id === alvoMiraId && inimigo.vida > 0);
+    if (!alvo || Math.hypot(alvo.x - estadoAventura.x, alvo.z - estadoAventura.z) > ALCANCE_MIRA) alvoMiraId = null;
+    renderizador?.definirAlvoMira(alvoMiraId);
+    atualizarHudMira();
+  }
+  function encontrarMelhorAlvoMira() {
+    if (!estadoAventura || !renderizador) return null;
+    let melhor = null, melhorPontuacao = Infinity;
+    for (const inimigo of estadoAventura.inimigos) {
+      if (inimigo.vida <= 0) continue;
+      const distancia = Math.hypot(inimigo.x - estadoAventura.x, inimigo.z - estadoAventura.z);
+      if (distancia > ALCANCE_MIRA) continue;
+      const alinhamento = renderizador.pontuarAlinhamentoMira(inimigo.x, inimigo.tipo === 'lobo' ? .82 : 1.35, inimigo.z);
+      if (!Number.isFinite(alinhamento)) continue;
+      const pontuacao = alinhamento + distancia * .006;
+      if (pontuacao < melhorPontuacao) { melhor = inimigo; melhorPontuacao = pontuacao; }
+    }
+    return melhor;
+  }
+  function alternarTravaMira() {
+    if (alvoMiraId !== null) {
+      alvoMiraId = null;
+      $('hud-mensagem').textContent = 'Mira livre.';
+    } else {
+      const alvo = encontrarMelhorAlvoMira();
+      if (!alvo) { $('hud-mensagem').textContent = 'Nenhuma criatura visível ao alcance da mira.'; return; }
+      alvoMiraId = alvo.id;
+      $('hud-mensagem').textContent = `Mira travada em ${alvo.nome}.`;
+    }
+    sincronizarAlvoMira();
+  }
   function passoMundo(agora) {
     if (!estadoAventura || $('tela-aventura').hidden) return;
     const dtMs = Math.min(100, Math.max(0, agora - tempoAnterior));
@@ -181,7 +234,12 @@
     const tras = teclas.has('s') || teclas.has('arrowdown');
     const dxLocal = joystick.dx + (direita ? 1 : 0) - (esquerda ? 1 : 0);
     const dzLocal = joystick.dz + (tras ? 1 : 0) - (frente ? 1 : 0);
-    const { dx, dz } = renderizador ? renderizador.orientarMovimento(dxLocal, dzLocal) : { dx: dxLocal, dz: dzLocal };
+    sincronizarAlvoMira();
+    const alvoTravado = estadoAventura.inimigos.find((inimigo) => inimigo.id === alvoMiraId && inimigo.vida > 0);
+    const movimentoOrientado = alvoTravado
+      ? renderizador.orientarMovimentoComMira(dxLocal, dzLocal, estadoAventura.x, estadoAventura.z, alvoTravado.x, alvoTravado.z)
+      : renderizador.orientarMovimento(dxLocal, dzLocal);
+    const { dx, dz } = movimentoOrientado;
     const xAntes = estadoAventura.x, zAntes = estadoAventura.z;
     const bauAntes = estadoAventura.bausAberto;
     const abatesAntes = estadoAventura.inimigosDerrotados;
@@ -205,7 +263,12 @@
     const regraImpediuMovimento = Math.hypot(destinoRegras.x - xAntes, destinoRegras.z - zAntes) < .0001
       && Math.hypot(destinoPedido.x - xAntes, destinoPedido.z - zAntes) > .0001;
     const destinoPedidoResolvido = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoPedido, RAIO_COLISAO_HEROI);
-    if (regraImpediuMovimento && Math.hypot(destinoPedidoResolvido.x - destinoPedido.x, destinoPedidoResolvido.z - destinoPedido.z) > .005) {
+    const pedidoNoVaoDoArco = Math.abs(destinoPedido.z - PORTAO_ARCO_Z) < MEIA_FAIXA_PORTAO_ARCO
+      && Math.abs(destinoPedido.x) < MEIA_LARGURA_LIVRE_ARCO;
+    const bloqueadoPeloCenario = Math.hypot(destinoPedidoResolvido.x - destinoPedido.x, destinoPedidoResolvido.z - destinoPedido.z) > .005;
+    // Dentro do vão, os colisores das colunas no renderer definem a passagem;
+    // a parede lógica estreita não deve fechar a abertura visual do arco.
+    if (regraImpediuMovimento && (pedidoNoVaoDoArco || bloqueadoPeloCenario)) {
       destinoRegras.x = destinoPedidoResolvido.x; destinoRegras.z = destinoPedidoResolvido.z;
     }
     const posicaoHeroiResolvida = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoRegras, RAIO_COLISAO_HEROI);
@@ -218,7 +281,8 @@
       inimigo.x = posicao.x; inimigo.z = posicao.z;
     }
     const movimentoX = estadoAventura.x - xAntes, movimentoZ = estadoAventura.z - zAntes;
-    if (Math.hypot(movimentoX,movimentoZ) > .0001) anguloHeroi = Math.atan2(-movimentoX,-movimentoZ);
+    if (alvoTravado) anguloHeroi = Math.atan2(-(alvoTravado.x - estadoAventura.x), -(alvoTravado.z - estadoAventura.z));
+    else if (Math.hypot(movimentoX,movimentoZ) > .0001) anguloHeroi = Math.atan2(-movimentoX,-movimentoZ);
     if (ataqueIniciado) renderizador.dispararAnimacaoAtaqueHeroi();
     ataqueSolicitado = false;
     const inimigosAtingidos = estadoAventura.inimigos.filter((inimigo) => inimigo.vida < (vidasAntes.get(inimigo.id) ?? inimigo.vida));
@@ -232,6 +296,7 @@
       inimigo.x = recuoResolvido.x; inimigo.z = recuoResolvido.z;
       renderizador.dispararDanoInimigo(inimigo.id, dano);
     }
+    sincronizarAlvoMira();
     if (puloSolicitado && saltoDecorrido === 0) saltoDecorrido = .55;
     puloSolicitado = false;
     interacaoSolicitada = false;
@@ -302,14 +367,29 @@
   $('botao-interagir').addEventListener('pointerdown', (e) => { e.preventDefault(); interacaoSolicitada = true; });
   window.addEventListener('keydown', (e) => {
     if ($('tela-aventura').hidden) return;
+    if (e.key === 'Control' || e.code === 'ControlLeft' || e.code === 'ControlRight') {
+      e.preventDefault();
+      if (!controlMiraPressionado) alternarTravaMira();
+      controlMiraPressionado = true;
+      controlesMiraAbaixo.add(e.code || 'Control');
+      return;
+    }
     const k = e.key.toLowerCase();
     if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
     if (!teclas.has(k) && (k === 'j' || k === ' ' || k === 'e')) { ataqueSolicitado = k === 'j'; if (k === 'j') prepararAudio(); if (k === ' ') puloSolicitado = true; if (k === 'e') interacaoSolicitada = true; }
     teclas.add(k);
   });
-  window.addEventListener('keyup', (e) => teclas.delete(e.key.toLowerCase()));
+  window.addEventListener('keyup', (e) => {
+    teclas.delete(e.key.toLowerCase());
+    if (e.key === 'Control' || e.code === 'ControlLeft' || e.code === 'ControlRight') {
+      controlesMiraAbaixo.delete(e.code || 'Control');
+      controlMiraPressionado = controlesMiraAbaixo.size > 0;
+    }
+  });
   window.addEventListener('blur', () => {
     teclas.clear(); soltarJoystick(); $('botao-correr').dataset.pressionado = '';
+    controlMiraPressionado = false;
+    controlesMiraAbaixo.clear();
     cameraPointers.clear(); distanciaToqueCamera = null;
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) salvarAventura(); });
