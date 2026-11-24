@@ -181,7 +181,10 @@
     ataqueAnimacao = Math.max(0, ataqueAnimacao - dt / 1000);
     if (estadoAventura.cooldown > .36) ataqueAnimacao = .2;
     const alturaSalto = saltoDecorrido > 0 ? Math.sin((.55 - saltoDecorrido) / .55 * Math.PI) * .8 : 0;
-    renderizador.desenhar(estadoAventura, agora, alturaSalto, ataqueAnimacao, dt/1000, anguloHeroi);
+    renderizador.desenhar(estadoAventura, {
+      agora, salto: alturaSalto, ataque: ataqueAnimacao,
+      deltaSegundos: dt / 1000, anguloHeroi
+    });
     atualizaHud();
     salvarDecorrido += dt;
     if (salvarDecorrido > 5000) { salvarDecorrido = 0; salvarAventura(); }
