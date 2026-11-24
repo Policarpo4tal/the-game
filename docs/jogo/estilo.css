@@ -1,0 +1,21 @@
+:root { --cor: #B5121B; --tinta: #2b1713; --papel: #fff8e8; color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { background: radial-gradient(circle at top, #f7d9a8, var(--cor)); color: var(--tinta); font: 18px/1.45 system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+.jogo { width: min(560px, 100%); margin: auto; padding: 14px; display: grid; gap: 14px; }
+.topo, .tela { background: var(--papel); border: 3px solid #633c24; border-radius: 18px; padding: 14px; box-shadow: 0 5px 0 #633c24; }
+.topo { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.topo h1 { margin: 0; font-size: 1.45rem; color: #8d1018; }
+.topo p { margin: 0; }
+.tela { display: grid; gap: 12px; justify-items: center; text-align: center; }
+.instrucao, .mensagem { margin: 0; }
+.brasao { font-size: 4rem; line-height: 1.1; }
+.botao { min-height: 52px; min-width: 190px; padding: 10px 22px; border: 2px solid #591016; border-radius: 14px; background: var(--cor); color: #fff; font: inherit; font-weight: 800; cursor: pointer; touch-action: manipulation; }
+.botao:focus-visible, .alvo:focus-visible { outline: 4px solid #f2b544; outline-offset: 3px; }
+.status { width: 100%; display: flex; justify-content: space-between; gap: 5px; font-variant-numeric: tabular-nums; }
+.arena { position: relative; width: 100%; height: min(55vh, 420px); min-height: 290px; overflow: hidden; border: 5px ridge #9b6b36; border-radius: 16px; background: linear-gradient(#c99c62, #8d5b36); touch-action: manipulation; }
+.arena::before { content: '⚔️'; position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); font-size: 2rem; opacity: .45; }
+.alvo { position: absolute; width: 56px; height: 56px; display: grid; place-items: center; border: 2px solid #6d411d; border-radius: 50%; background: #fff2d2; font-size: 2rem; cursor: pointer; touch-action: manipulation; animation: surgir .14s ease-out; }
+.alvo.proibido { background: #321b1b; border-color: #d94545; }
+@keyframes surgir { from { scale: .4; opacity: .3; } to { scale: 1; opacity: 1; } }
+@media (max-height: 600px) { .arena { height: 48vh; min-height: 220px; } }
