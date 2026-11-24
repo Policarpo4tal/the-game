@@ -51,7 +51,12 @@
     const uMvp=gl.getUniformLocation(programa,'u_mvp'), uColor=gl.getUniformLocation(programa,'u_color'), uLight=gl.getUniformLocation(programa,'u_light');
     const cube=cubeData(gl);
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
-    let camera=[0,5,10];
+    let camera=[0,5,10], cameraYaw=0, cameraPitch=.332, cameraDistance=12.6;
+    function moverCamera(dx,dy,zoom=0) {
+      cameraYaw += dx*.006;
+      cameraPitch = Math.max(-.05, Math.min(.85, cameraPitch-dy*.004));
+      cameraDistance = Math.max(7, Math.min(20, cameraDistance+zoom));
+    }
     function desenhar(estado, agora, salto, ataque) {
       const dpr=Math.min(window.devicePixelRatio||1,1.5), w=Math.max(1,Math.floor(canvas.clientWidth*dpr)), h=Math.max(1,Math.floor(canvas.clientHeight*dpr));
       if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h);}
@@ -59,7 +64,11 @@
       const luz=.76+(.24*(1-noite));
       gl.clearColor(.30*(1-noite)+.035*noite,.57*(1-noite)+.055*noite,.78*(1-noite)+.13*noite,1);
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-      const destino=[estado.x,1,estado.z-3.4], alvoCam=[estado.x,5.1,estado.z+8.5];
+      const destino=[estado.x,1,estado.z-3.4];
+      const horizontal=cameraDistance*Math.cos(cameraPitch);
+      const alvoCam=[destino[0]+Math.sin(cameraYaw)*horizontal,
+        destino[1]+cameraDistance*Math.sin(cameraPitch),
+        destino[2]+Math.cos(cameraYaw)*horizontal];
       camera=camera.map((v,i)=>v+(alvoCam[i]-v)*.12);
       const vp=mul(perspective(Math.PI/3,w/h,.1,130),lookAt(camera,destino));
       gl.bindBuffer(gl.ARRAY_BUFFER,cube.pb); gl.enableVertexAttribArray(pos); gl.vertexAttribPointer(pos,3,gl.FLOAT,false,0,0);
@@ -67,6 +76,59 @@
       const box=(x,y,z,sx,sy,sz,color,ang=0)=>{
         const m=mul(vp,modelo(x,y,z,sx,sy,sz,ang)); gl.uniformMatrix4fv(uMvp,false,new Float32Array(m));
         gl.uniform3fv(uColor,new Float32Array(color)); gl.uniform1f(uLight,luz); gl.drawArrays(gl.TRIANGLES,0,cube.count);
+      };
+      const humanoide=(x,z,py,cor,skin,helm,arma,escudo=false)=>{
+        // Silhueta em camadas: botas, pernas, túnica, ombreiras, braços e cabeça.
+        box(x-.2,.23+py,z,.28,.42,.38,[.16,.16,.18]); box(x+.2,.23+py,z,.28,.42,.38,[.16,.16,.18]);
+        box(x-.2,.58+py,z,.3,.54,.34,[.28,.25,.21]); box(x+.2,.58+py,z,.3,.54,.34,[.28,.25,.21]);
+        box(x,.98+py,z,.68,.68,.42,cor);
+        box(x,.72+py,z-.23,.72,.13,.08,[.72,.52,.21]);
+        box(x-.42,1.2+py,z,.27,.25,.45,cor); box(x+.42,1.2+py,z,.27,.25,.45,cor);
+        box(x-.48,.93+py,z-.02,.2,.6,.25,cor,-.14); box(x+.48,.93+py,z-.02,.2,.6,.25,cor,.14);
+        box(x,1.52+py,z,.3,.2,.28,skin);
+        box(x,1.79+py,z,.48,.48,.42,skin);
+        box(x,2.01+py,z-.02,.53,.17,.48,helm);
+        box(x-.11,1.81+py,z-.22,.055,.07,.035,[.12,.12,.13]); box(x+.11,1.81+py,z-.22,.055,.07,.035,[.12,.12,.13]);
+        box(x,1.7+py,z-.255,.22,.06,.025,[.42,.22,.16]);
+        // Espada e guarda em metal; o escudo varia conforme a classe.
+        box(x+.67,1.02+py,z-.12,.11,.64,.11,arma,-.38);
+        box(x+.67,1.1+py,z-.12,.17,.08,.15,[.75,.62,.32],-.38);
+        if(escudo) { box(x-.66,1.04+py,z-.06,.14,.68,.48,[.64,.48,.22]); box(x-.66,1.08+py,z-.315,.07,.13,.04,[.9,.74,.35]); }
+      };
+      const goblin=(x,z,ang)=>{
+        const green=[.27,.53,.19], dark=[.17,.35,.13];
+        box(x,.48,z,.3,.72,.3,[.27,.23,.16],ang); box(x,.98,z,.52,.55,.4,green,ang);
+        box(x,1.48,z-.04,.5,.5,.43,green,ang);
+        box(x-.34,1.47,z-.03,.28,.12,.12,green,ang); box(x+.34,1.47,z-.03,.28,.12,.12,green,ang);
+        box(x-.13,1.52,z-.265,.07,.09,.035,[1,.76,.13],ang); box(x+.13,1.52,z-.265,.07,.09,.035,[1,.76,.13],ang);
+        box(x,1.34,z-.28,.19,.12,.08,[.72,.61,.24],ang);
+        box(x-.37,1.01,z,.18,.58,.2,green,ang-.12); box(x+.37,1.01,z,.18,.58,.2,green,ang+.12);
+        box(x-.2,.1,z,.22,.2,.38,dark,ang); box(x+.2,.1,z,.22,.2,.38,dark,ang);
+        box(x+.53,.79,z-.12,.08,.58,.08,[.4,.25,.14],ang-.3);
+        box(x+.53,1.12,z-.12,.1,.28,.1,[.65,.63,.54],ang-.3);
+      };
+      const lobo=(x,z,ang)=>{
+        const pelo=[.37,.39,.42], sombra=[.25,.27,.30];
+        box(x,.58,z,.66,.52,1.08,pelo,ang); box(x,.76,z-.53,.58,.52,.58,pelo,ang);
+        box(x,.61,z-.85,.28,.22,.45,[.58,.54,.48],ang);
+        box(x-.17,.85,z-.73,.08,.08,.04,[.95,.68,.13],ang); box(x+.17,.85,z-.73,.08,.08,.04,[.95,.68,.13],ang);
+        for(const [sx,sz] of [[-.23,-.32],[.23,-.32],[-.23,.38],[.23,.38]]) {
+          box(x+sx,.27,z+sz,.18,.5,.2,pelo,ang); box(x+sx,.07,z+sz-.03,.2,.12,.28,sombra,ang);
+        }
+        box(x,.7,z+.69,.16,.16,.58,pelo,ang+.2);
+        box(x,.27,z-.75,.25,.08,.24,[.8,.74,.61],ang);
+      };
+      const esqueleto=(x,z,ang)=>{
+        const bone=[.79,.76,.64], dark=[.34,.3,.25];
+        box(x,.51,z,.48,.54,.28,dark,ang); box(x,.52,z,.38,.48,.22,bone,ang);
+        box(x,1.13,z,.16,.72,.15,bone,ang);
+        for(let i=0;i<3;i++) box(x,.76+i*.18,z-.03,.65,.07,.22,bone,ang);
+        box(x,1.55,z,.47,.43,.42,bone,ang);
+        box(x-.12,1.59,z-.22,.08,.1,.04,[.75,.13,.08],ang); box(x+.12,1.59,z-.22,.08,.1,.04,[.75,.13,.08],ang);
+        box(x,1.42,z-.23,.18,.06,.04,dark,ang);
+        box(x-.42,1.04,z,.14,.66,.14,bone,ang-.18); box(x+.42,1.04,z,.14,.66,.14,bone,ang+.18);
+        box(x-.19,.27,z,.15,.5,.16,bone,ang); box(x+.19,.27,z,.15,.5,.16,bone,ang);
+        box(x+.57,.87,z-.12,.08,.7,.08,[.53,.52,.48],ang-.28);
       };
       // Planície, trilha antiga e rio estreito.
       box(0,-.38,0,100,.55,100,[.27,.43,.20]);
@@ -94,28 +156,25 @@
       for(const [x,z] of [[-5,18],[5,27],[-19,-5],[21,2],[-12,-20],[13,-13]]) box(x,.55,z,1.8,1.1,1.5,[.25,.38,.17]);
       // Baú de descoberta perto do rio.
       if (!estado.bausAberto) { box(18,.65,18,1.3,1.1,1.1,[.48,.25,.08]); box(18,1.15,18,1.35,.18,1.16,[.77,.57,.12]); }
-      // Herói em blocos low-poly, cor associada à classe escolhida.
+      // Herói low-poly em armadura, com detalhes e equipamento da classe.
       const classe=Regras.CLASSES[estado.classe], py=salto;
-      box(estado.x,.95+py,estado.z,.62,.88,.4,hex(classe.cor));
-      box(estado.x,1.65+py,estado.z,.5,.48,.48,[.77,.57,.39]);
-      box(estado.x,1.94+py,estado.z,.58,.22,.55,[.32,.22,.15]);
-      box(estado.x-.42,1.02+py,estado.z,.24,.66,.27,hex(classe.cor),-.12);
-      box(estado.x+.42,1.02+py,estado.z,.24,.66,.27,hex(classe.cor),.12);
-      box(estado.x-.19,.35+py,estado.z,.25,.62,.32,[.23,.23,.24]); box(estado.x+.19,.35+py,estado.z,.25,.62,.32,[.23,.23,.24]);
-      box(estado.x+.62,1.02+py,estado.z-.05,.11,.9,.13,[.72,.72,.67],-.48);
-      if(ataque>0) box(estado.x+.82,1.1+py,estado.z-.25,.16,.6,.14,[.88,.83,.67],-.78);
-      // Criaturas, barras de vida e sombra no chão.
+      const corHeroi=hex(classe.cor), elmo=estado.classe==='Mago'?[.27,.2,.43]:estado.classe==='Arqueiro'?[.28,.31,.2]:[.36,.31,.24];
+      humanoide(estado.x,estado.z,py,corHeroi,[.77,.57,.39],elmo,[.72,.72,.67],estado.classe==='Paladino');
+      if(ataque>0) box(estado.x+.85,1.1+py,estado.z-.4,.13,.68,.12,[.95,.9,.72],-.9);
+      // Inimigos com silhuetas próprias e barras de vida.
       for(const e of estado.inimigos) if(e.vida>0) {
-        const cor=e.tipo==='goblin'?[.25,.55,.20]:e.tipo==='lobo'?[.36,.38,.41]:[.78,.76,.65];
-        box(e.x,.52,e.z,.8,.72,1.05,cor); box(e.x,.98,e.z-.08,.62,.55,.62,cor);
-        box(e.x-.42,.44,e.z,.22,.62,.24,cor); box(e.x+.42,.44,e.z,.22,.62,.24,cor);
-        box(e.x,.08,e.z,1.15,.08,.12,[.15,.08,.07]);
-        box(e.x-(1-(e.vida/e.maxVida))*.5,.1,e.z-.08,Math.max(.04,e.vida/e.maxVida),.1,.14,[.75,.12,.09]);
+        const ang=Math.atan2(estado.x-e.x,-(estado.z-e.z));
+        if(e.tipo==='goblin') goblin(e.x,e.z,ang);
+        else if(e.tipo==='lobo') lobo(e.x,e.z,ang);
+        else esqueleto(e.x,e.z,ang);
+        const altura=e.tipo==='lobo'?1.25:1.95;
+        box(e.x,altura,e.z,1.15,.08,.12,[.15,.08,.07]);
+        box(e.x-(1-(e.vida/e.maxVida))*.5,altura+.01,e.z-.08,Math.max(.04,e.vida/e.maxVida),.1,.14,[.75,.12,.09]);
       }
       // Bússola simples formada por quatro marcos de pedra.
       for(const [x,z] of [[-44,-44],[44,-44],[-44,44],[44,44]]) box(x,.8,z,1.2,1.6,1.2,[.45,.43,.37]);
     }
-    return { desenhar };
+    return { desenhar, moverCamera };
   }
   function hex(s) { const n=parseInt(s.slice(1),16); return [((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255]; }
   raiz.Mundo3D={ iniciar };

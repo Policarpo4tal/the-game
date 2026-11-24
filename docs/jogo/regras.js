@@ -52,9 +52,9 @@
     Assassino: { vida: 95, dano: 3, cor: '#51535c', arma: '🗡️' }
   };
   const INIMIGOS_INICIAIS = [
-    { id: 1, nome: 'Goblin batedor', tipo: 'goblin', x: -7, z: -12, vida: 3, maxVida: 3, dano: 7, xp: 35, moeda: 8 },
-    { id: 2, nome: 'Lobo cinzento', tipo: 'lobo', x: 8, z: -18, vida: 4, maxVida: 4, dano: 10, xp: 45, moeda: 10 },
-    { id: 3, nome: 'Esqueleto errante', tipo: 'esqueleto', x: 16, z: 4, vida: 5, maxVida: 5, dano: 12, xp: 60, moeda: 15 }
+    { id: 1, nome: 'Goblin batedor', tipo: 'goblin', nivel: 1, x: -7, z: -12, vida: 3, maxVida: 3, dano: 7, xp: 35, moeda: 8 },
+    { id: 2, nome: 'Lobo cinzento', tipo: 'lobo', nivel: 2, x: 8, z: -18, vida: 4, maxVida: 4, dano: 10, xp: 45, moeda: 10 },
+    { id: 3, nome: 'Esqueleto errante', tipo: 'esqueleto', nivel: 3, x: 16, z: 4, vida: 5, maxVida: 5, dano: 12, xp: 60, moeda: 15 }
   ];
   const CASAS = [[-10,9],[-15,15],[12,10],[18,13],[8,21]];
   const ARVORES = [[-22,-18],[-28,-8],[24,-16],[30,-2],[-25,20],[27,22],[-33,5],[34,12]];

@@ -24,9 +24,11 @@
   let puloSolicitado = false;
   let interacaoSolicitada = false;
   let joystick = { dx: 0, dz: 0 };
+  let cameraPointer = null;
   let treino;
   let frameTreino;
   let treinoSalvando = false;
+  let contextoAudio = null;
   const teclas = new Set();
   const classes = Object.keys(Regras.CLASSES);
 
@@ -45,6 +47,37 @@
     return Placar.salvar({ rpg: estadoAventura }).catch((erro) => {
       $('hud-mensagem').textContent = 'Não foi possível salvar: ' + erro.message;
     });
+  }
+  function prepararAudio() {
+    if (contextoAudio) { contextoAudio.resume().catch(() => {}); return; }
+    const Audio = window.AudioContext || window.webkitAudioContext;
+    if (Audio) {
+      contextoAudio = new Audio();
+      contextoAudio.resume().catch(() => {});
+    }
+  }
+  function tocarImpactoEspada() {
+    if (!contextoAudio) return;
+    const agora = contextoAudio.currentTime;
+    const brilho = contextoAudio.createOscillator();
+    const corpo = contextoAudio.createOscillator();
+    const volumeBrilho = contextoAudio.createGain();
+    const volumeCorpo = contextoAudio.createGain();
+    brilho.type = 'triangle'; corpo.type = 'sine';
+    brilho.frequency.setValueAtTime(1180, agora);
+    brilho.frequency.exponentialRampToValueAtTime(310, agora + .11);
+    corpo.frequency.setValueAtTime(210, agora);
+    corpo.frequency.exponentialRampToValueAtTime(95, agora + .09);
+    volumeBrilho.gain.setValueAtTime(.0001, agora);
+    volumeBrilho.gain.exponentialRampToValueAtTime(.12, agora + .006);
+    volumeBrilho.gain.exponentialRampToValueAtTime(.0001, agora + .14);
+    volumeCorpo.gain.setValueAtTime(.0001, agora);
+    volumeCorpo.gain.exponentialRampToValueAtTime(.16, agora + .004);
+    volumeCorpo.gain.exponentialRampToValueAtTime(.0001, agora + .1);
+    brilho.connect(volumeBrilho); volumeBrilho.connect(contextoAudio.destination);
+    corpo.connect(volumeCorpo); volumeCorpo.connect(contextoAudio.destination);
+    brilho.start(agora); corpo.start(agora);
+    brilho.stop(agora + .15); corpo.stop(agora + .11);
   }
   function montarRenderizador() {
     if (renderizador) return true;
@@ -89,6 +122,20 @@
     $('hud-abates').textContent = e.inimigosDerrotados;
     $('hud-missao').textContent = e.inimigosDerrotados >= 3
       ? 'Missão concluída: vila protegida!' : `Missão: derrote as criaturas (${e.inimigosDerrotados}/3)`;
+    const perto = e.inimigos.filter((inimigo) => inimigo.vida > 0)
+      .map((inimigo) => ({ inimigo, distancia: Math.hypot(inimigo.x - e.x, inimigo.z - e.z) }))
+      .sort((a, b) => a.distancia - b.distancia)[0];
+    const mostrarInimigo = perto && perto.distancia < 8;
+    $('hud-inimigo').hidden = !mostrarInimigo;
+    if (mostrarInimigo) {
+      const inimigo = perto.inimigo;
+      const nivel = inimigo.nivel || (inimigo.tipo === 'goblin' ? 1 : inimigo.tipo === 'lobo' ? 2 : 3);
+      $('hud-inimigo-nome').textContent = inimigo.nome;
+      $('hud-inimigo-nivel').textContent = nivel;
+      $('hud-inimigo-vida').max = inimigo.maxVida;
+      $('hud-inimigo-vida').value = Math.max(0, inimigo.vida);
+      $('hud-inimigo-vida-texto').textContent = `${Math.ceil(inimigo.vida)}/${inimigo.maxVida} HP`;
+    }
   }
   function passoMundo(agora) {
     if (!estadoAventura || $('tela-aventura').hidden) return;
@@ -104,11 +151,13 @@
     const abatesAntes = estadoAventura.inimigosDerrotados;
     const nivelAntes = estadoAventura.nivel;
     const derrotadosAntes = new Set(estadoAventura.inimigos.filter((inimigo) => inimigo.vida === 0).map((inimigo) => inimigo.id));
+    const vidasAntes = new Map(estadoAventura.inimigos.map((inimigo) => [inimigo.id, inimigo.vida]));
     estadoAventura = Regras.rpgAtualizar(estadoAventura, {
       dx, dz, correr: teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim',
       atacar: ataqueSolicitado, pular: puloSolicitado, interagir: interacaoSolicitada
     }, dt, Math.random);
     ataqueSolicitado = false;
+    if (estadoAventura.inimigos.some((inimigo) => inimigo.vida < (vidasAntes.get(inimigo.id) ?? inimigo.vida))) tocarImpactoEspada();
     if (puloSolicitado && saltoDecorrido === 0) saltoDecorrido = .55;
     puloSolicitado = false;
     interacaoSolicitada = false;
@@ -172,20 +221,43 @@
   pad.addEventListener('pointerup', soltarJoystick); pad.addEventListener('pointercancel', soltarJoystick);
   $('botao-correr').addEventListener('pointerdown', (e) => { e.currentTarget.dataset.pressionado = 'sim'; e.currentTarget.setPointerCapture(e.pointerId); });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((tipo) => $('botao-correr').addEventListener(tipo, () => { $('botao-correr').dataset.pressionado = ''; }));
-  $('botao-atacar').addEventListener('pointerdown', (e) => { e.preventDefault(); ataqueSolicitado = true; });
+  $('botao-atacar').addEventListener('pointerdown', (e) => { e.preventDefault(); prepararAudio(); ataqueSolicitado = true; });
   $('botao-pular').addEventListener('pointerdown', (e) => { e.preventDefault(); puloSolicitado = true; });
   $('botao-interagir').addEventListener('pointerdown', (e) => { e.preventDefault(); interacaoSolicitada = true; });
   window.addEventListener('keydown', (e) => {
     if ($('tela-aventura').hidden) return;
     const k = e.key.toLowerCase();
     if (['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
-    if (!teclas.has(k) && (k === 'j' || k === ' ' || k === 'e')) { ataqueSolicitado = k === 'j'; if (k === ' ') puloSolicitado = true; if (k === 'e') interacaoSolicitada = true; }
+    if (!teclas.has(k) && (k === 'j' || k === ' ' || k === 'e')) { ataqueSolicitado = k === 'j'; if (k === 'j') prepararAudio(); if (k === ' ') puloSolicitado = true; if (k === 'e') interacaoSolicitada = true; }
     teclas.add(k);
   });
   window.addEventListener('keyup', (e) => teclas.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => { teclas.clear(); soltarJoystick(); $('botao-correr').dataset.pressionado = ''; });
   document.addEventListener('visibilitychange', () => { if (document.hidden) salvarAventura(); });
-  $('mundo').addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse' && e.button === 0) ataqueSolicitado = true; });
+  $('mundo').addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button === 0) { prepararAudio(); ataqueSolicitado = true; return; }
+    if (e.pointerType === 'touch' || (e.pointerType === 'mouse' && e.button === 2)) {
+      e.preventDefault();
+      cameraPointer = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      $('mundo').setPointerCapture(e.pointerId);
+    }
+  });
+  $('mundo').addEventListener('pointermove', (e) => {
+    if (!cameraPointer || cameraPointer.id !== e.pointerId) return;
+    const dx = e.clientX - cameraPointer.x, dy = e.clientY - cameraPointer.y;
+    cameraPointer.x = e.clientX; cameraPointer.y = e.clientY;
+    if (renderizador) renderizador.moverCamera(dx, dy);
+  });
+  function soltarCamera(e) { if (cameraPointer && cameraPointer.id === e.pointerId) cameraPointer = null; }
+  $('mundo').addEventListener('pointerup', soltarCamera);
+  $('mundo').addEventListener('pointercancel', soltarCamera);
+  $('mundo').addEventListener('contextmenu', (e) => e.preventDefault());
+  $('mundo').addEventListener('wheel', (e) => {
+    if (renderizador && !$('tela-aventura').hidden) {
+      e.preventDefault();
+      renderizador.moverCamera(0, 0, Math.sign(e.deltaY) * .7);
+    }
+  }, { passive: false });
   $('botao-jogar').addEventListener('click', () => iniciarAventura(true));
   $('botao-continuar').addEventListener('click', () => iniciarAventura(false));
   $('botao-sair').addEventListener('click', async () => { cancelAnimationFrame(frameMundo); await salvarAventura(); atualizarProgressoSalvo(); mostrar('tela-inicio'); });
