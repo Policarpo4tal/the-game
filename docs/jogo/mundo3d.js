@@ -68,8 +68,35 @@
     moon.shadow.mapSize.set(1536, 1536); moon.shadow.camera.left = -34; moon.shadow.camera.right = 34; moon.shadow.camera.top = 34; moon.shadow.camera.bottom = -34; moon.shadow.bias = -.00025; scene.add(moon);
 
     const v = (x, y, z) => new T.Vector3(x, y, z);
+    // Os colisores são derivados das próprias malhas; não repetimos posições ou tamanhos do cenário.
+    const colisoresCenario = [];
+    const limiteArena = 44;
+    function atualizarLimitesColisor(colisor, forcar = false) {
+      const objeto = colisor.objeto;
+      objeto.updateWorldMatrix(true, true);
+      if (!forcar && colisor.matriz.equals(objeto.matrixWorld) && colisor.geometria === objeto.geometry) return;
+      const caixa = new T.Box3().setFromObject(objeto);
+      if (caixa.isEmpty()) return;
+      colisor.minX = caixa.min.x; colisor.maxX = caixa.max.x; colisor.minZ = caixa.min.z; colisor.maxZ = caixa.max.z;
+      colisor.x = (caixa.min.x + caixa.max.x) * .5; colisor.z = (caixa.min.z + caixa.max.z) * .5;
+      if (colisor.tipo === 'circulo') colisor.raio = Math.max(caixa.max.x - caixa.min.x, caixa.max.z - caixa.min.z) * .5 + colisor.margem;
+      colisor.matriz.copy(objeto.matrixWorld); colisor.geometria = objeto.geometry;
+    }
+    function registrarColisorCaixa(objeto, condicao = null) {
+      const colisor = { tipo: 'caixa', objeto, condicao, matriz: new T.Matrix4(), geometria: null };
+      atualizarLimitesColisor(colisor, true); colisoresCenario.push(colisor); return colisor;
+    }
+    function registrarColisorCirculo(objeto, condicao = null, margem = 0) {
+      const colisor = { tipo: 'circulo', objeto, condicao, margem, matriz: new T.Matrix4(), geometria: null };
+      atualizarLimitesColisor(colisor, true); colisoresCenario.push(colisor); return colisor;
+    }
+    function sincronizarColisoresCenario() {
+      for (const colisor of colisoresCenario) atualizarLimitesColisor(colisor);
+    }
     function mesh(geometry, material, parent, pos = [0, 0, 0], scale = [1, 1, 1], cast = true) {
-      const m = new T.Mesh(geometry, material); m.position.set(...pos); m.scale.set(...scale); m.castShadow = cast; m.receiveShadow = true; parent.add(m); return m;
+      const m = new T.Mesh(geometry, material); m.position.set(...pos); m.scale.set(...scale); m.castShadow = cast; m.receiveShadow = true; parent.add(m);
+      if (cast && parent.userData.registrarSolidos && !material.userData.semColisao) registrarColisorCaixa(m);
+      return m;
     }
     const boxGeo = new T.BoxGeometry(1, 1, 1), sphereGeo = new T.SphereGeometry(1, 14, 10), cylGeo = new T.CylinderGeometry(1, 1, 1, 12), coneGeo = new T.ConeGeometry(1, 1, 12);
     function box(parent, x, y, z, sx, sy, sz, material = mat.stone, rot = 0) { const m = mesh(boxGeo, material, parent, [x, y, z], [sx, sy, sz]); m.rotation.y = rot; return m; }
@@ -80,9 +107,11 @@
 
     function criarCenario() {
       const world = new T.Group(); scene.add(world);
+      world.userData.registrarSolidos = true;
       const floor = mesh(new T.PlaneGeometry(120, 120), mat.ground, world, [0, -.18, 0], [1, 1, 1], false); floor.rotation.x = -Math.PI / 2;
       // Via de lajes claras: calçada de X=-1.8..1.8 avançando pelo eixo Z.
       const pathMat = new T.MeshStandardMaterial({ ...textures.chao, color: 0xb2a99a, roughness: .93, bumpScale: .12 });
+      pathMat.userData.semColisao = true; // Lajes do caminho são superfície caminhável, não obstáculos.
       for (let z = -42; z < 34; z += 2.35) for (let x of [-1.1, 1.1]) { const p = box(world, x + (Math.random() - .5) * .22, -.035, z + (Math.random() - .5) * .18, 1.02 + Math.random() * .3, .13, 1.9, pathMat, (Math.random() - .5) * .06); p.material = pathMat; }
       // Ruínas com blocos irregulares, vãos e arcos sobre a antiga rua.
       for (const side of [-1, 1]) {
@@ -123,6 +152,7 @@
       link(bonfire, [0, .28, 0], [.02, 1.4, -.05], .075, mat.iron); link(bonfire, [-.31, .43, -.04], [.35, .43, -.04], .045, mat.iron); link(bonfire, [0, 1.35, -.05], [0, 1.54, -.05], .09, mat.gold);
       for (let i = 0; i < 6; i++) { const fire = mesh(coneGeo, mat.ember, bonfire, [(Math.random() - .5) * .28, .55 + Math.random() * .25, (Math.random() - .5) * .2], [.2, .7, .2]); fire.userData.phase = Math.random() * 7; }
       const fireLight = new T.PointLight(0xff6321, 55, 17, 1.8); fireLight.position.set(-3, 1.6, 6); scene.add(fireLight);
+      const colisorFogueira = registrarColisorCirculo(bonfire, null, .08);
       const sparkPositions = new Float32Array(24 * 3); const sparks = new T.BufferGeometry(); sparks.setAttribute('position', new T.BufferAttribute(sparkPositions, 3));
       const sparkPoints = new T.Points(sparks, new T.PointsMaterial({ color: 0xffad52, size: .08, transparent: true, opacity: .9 })); world.add(sparkPoints);
       for (let i = 0; i < 24; i++) sparkPositions[i * 3] = (Math.random() - .5) * .7;
@@ -131,10 +161,82 @@
       box(chest, 0, .48, 0, 1.35, .82, 1.03, mat.wood); const lid = mesh(new T.SphereGeometry(.69, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat.wood, chest, [0, .87, 0], [1, .62, .76]);
       for (const x of [-.48, .48]) box(chest, x, .56, -.53, .12, .84, .08, mat.gold);
       box(chest, 0, .68, -.56, .18, .31, .09, mat.gold); const aura = new T.PointLight(0xe6a84d, 1.2, 4); aura.position.set(18, 1.3, 18); scene.add(aura);
-      return { world, flickers, fireLight, sparkPositions, sparks, chest, lid, aura, bonfire };
+      const colisorBau = registrarColisorCaixa(chest, () => chest.visible);
+      return { world, flickers, fireLight, sparkPositions, sparks, chest, lid, aura, bonfire, colisorFogueira, colisorBau };
     }
 
+    mat.ember.userData.semColisao = true;
     const scenery = criarCenario();
+    function colisorAtivo(colisor) { return !colisor.condicao || colisor.condicao(); }
+    function limitarAoMapa(pos, raio) {
+      return { x: Math.max(-limiteArena + raio, Math.min(limiteArena - raio, pos.x)),
+        z: Math.max(-limiteArena + raio, Math.min(limiteArena - raio, pos.z)) };
+    }
+    // Corrige penetrações círculo-versus-caixa/círculo no plano do chão.
+    function resolverColisaoHorizontal(pos, raio = .42) {
+      sincronizarColisoresCenario();
+      const resolvido = limitarAoMapa(pos, raio);
+      for (let passada = 0; passada < 8; passada++) {
+        let houveColisao = false;
+        for (const c of colisoresCenario) {
+          if (!colisorAtivo(c)) continue;
+          if (c.tipo === 'circulo') {
+            if (Math.hypot(resolvido.x - c.x, resolvido.z - c.z) > raio + c.raio + .05) continue;
+          } else if (resolvido.x + raio < c.minX - .05 || resolvido.x - raio > c.maxX + .05 || resolvido.z + raio < c.minZ - .05 || resolvido.z - raio > c.maxZ + .05) continue;
+          let nx, nz, profundidade;
+          if (c.tipo === 'circulo') {
+            const dx = resolvido.x - c.x, dz = resolvido.z - c.z, distancia = Math.hypot(dx, dz), minimo = raio + c.raio;
+            if (distancia >= minimo) continue;
+            if (distancia > 1e-6) { nx = dx / distancia; nz = dz / distancia; profundidade = minimo - distancia; }
+            else { nx = 1; nz = 0; profundidade = minimo; }
+          } else {
+            const px = Math.max(c.minX, Math.min(c.maxX, resolvido.x)); const pz = Math.max(c.minZ, Math.min(c.maxZ, resolvido.z));
+            let dx = resolvido.x - px, dz = resolvido.z - pz, distancia = Math.hypot(dx, dz);
+            if (distancia >= raio) continue;
+            if (distancia > 1e-6) { nx = dx / distancia; nz = dz / distancia; profundidade = raio - distancia; }
+            else {
+              const lados = [
+                { d: resolvido.x - c.minX, nx: -1, nz: 0, saida: c.minX - raio },
+                { d: c.maxX - resolvido.x, nx: 1, nz: 0, saida: c.maxX + raio },
+                { d: resolvido.z - c.minZ, nx: 0, nz: -1, saida: c.minZ - raio },
+                { d: c.maxZ - resolvido.z, nx: 0, nz: 1, saida: c.maxZ + raio }
+              ].sort((a, b) => a.d - b.d);
+              const lado = lados[0]; nx = lado.nx; nz = lado.nz;
+              if (nx) resolvido.x = lado.saida; else resolvido.z = lado.saida;
+              houveColisao = true; continue;
+            }
+          }
+          resolvido.x += nx * (profundidade + .001); resolvido.z += nz * (profundidade + .001); houveColisao = true;
+        }
+        const limitado = limitarAoMapa(resolvido, raio); resolvido.x = limitado.x; resolvido.z = limitado.z;
+        if (!houveColisao) break;
+      }
+      return resolvido;
+    }
+    // Move em dois eixos separados: se um eixo encontra um muro, o outro continua deslizando.
+    function moverComColisao(origem, destino, raio = .42) {
+      let p = resolverColisaoHorizontal(origem, raio);
+      const eixos = Math.abs(destino.x - origem.x) >= Math.abs(destino.z - origem.z) ? ['x', 'z'] : ['z', 'x'];
+      for (const eixo of eixos) { p[eixo] = destino[eixo]; p = resolverColisaoHorizontal(p, raio); }
+      return p;
+    }
+    const raycasterCamera = new T.Raycaster();
+    const cameraAlvoTmp = new T.Vector3(), cameraDirecaoTmp = new T.Vector3();
+    function ajustarCameraContraCenario() {
+      sincronizarColisoresCenario();
+      cameraAlvoTmp.copy(controls.target);
+      cameraDirecaoTmp.subVectors(camera.position, cameraAlvoTmp);
+      const distanciaDesejada = cameraDirecaoTmp.length();
+      if (distanciaDesejada > 1e-4) {
+        cameraDirecaoTmp.normalize(); raycasterCamera.set(cameraAlvoTmp, cameraDirecaoTmp);
+        raycasterCamera.near = .08; raycasterCamera.far = distanciaDesejada;
+        const fontes = colisoresCenario.filter(colisorAtivo).map((colisor) => colisor.objeto);
+        const impacto = raycasterCamera.intersectObjects(fontes, true)[0];
+        if (impacto) camera.position.copy(cameraAlvoTmp).addScaledVector(cameraDirecaoTmp, Math.max(.45, impacto.distance - .3));
+      }
+      // O ângulo mínimo da órbita costuma bastar; este piso também protege câmeras encurraladas.
+      camera.position.y = Math.max(1.25, camera.position.y);
+    }
     function marker(parent, radius, color) {
       const ring = new T.Mesh(new T.TorusGeometry(radius, .028, 6, 40), new T.MeshBasicMaterial({ color, transparent: true, opacity: .48 })); ring.rotation.x = -Math.PI / 2; ring.position.y = .035; parent.add(ring); return ring;
     }
@@ -219,6 +321,7 @@
     let hero = criarModeloHeroi('Guerreiro'); let heroClass = 'Guerreiro';
     const enemies = new Map();
     const inimigosAnimacao = new Map();
+    const danosPendentes = new Map();
     const animHeroi = { tempo: 0, fasePasso: 0, ataque: 1, duracaoAtaque: .48, correndo: false, movimento: 0 };
     const slash = mesh(new T.TorusGeometry(.82, .035, 6, 28, Math.PI * .88), new T.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0, depthWrite: false, side: T.DoubleSide }), hero, [.43, 1.08, -.82]);
     slash.rotation.set(.15, -.22, -.4); slash.visible = false; slash.renderOrder = 3;
@@ -230,10 +333,9 @@
       if (animHeroi.ataque < animHeroi.duracaoAtaque) return false;
       animHeroi.ataque = 0; return true;
     }
-    function dispararDanoInimigo(id, direcaoX, direcaoZ, dano = 1) {
-      const anim = inimigosAnimacao.get(id); if (!anim) return;
-      anim.recuoX = Math.max(-.42, Math.min(.42, anim.recuoX + direcaoX * .24));
-      anim.recuoZ = Math.max(-.42, Math.min(.42, anim.recuoZ + direcaoZ * .24));
+    function dispararDanoInimigo(id, dano = 1) {
+      const anim = inimigosAnimacao.get(id);
+      if (!anim) { danosPendentes.set(id, (danosPendentes.get(id) || 0) + dano); return; }
       anim.flash = .13; anim.tremor = .2; anim.postura += dano;
       if (anim.postura >= 3) { anim.atordoado = .42; anim.postura = 0; }
     }
@@ -287,18 +389,20 @@
     function atualizarAnimacaoInimigo(dt, inimigo, distancia, angulo) {
       if (!enemies.has(inimigo.id)) {
         const model = criarModeloInimigo(inimigo.tipo); enemies.set(inimigo.id, model);
-        inimigosAnimacao.set(inimigo.id, { tempo: Math.random() * 4, flash: 0, tremor: 0, recuoX: 0, recuoZ: 0, postura: 0, atordoado: 0, telegraph: -.1 });
+        const animNova = { tempo: Math.random() * 4, flash: 0, tremor: 0, postura: 0, atordoado: 0, telegraph: -.1 };
+        const danoPendente = danosPendentes.get(inimigo.id) || 0;
+        if (danoPendente) { animNova.flash = .13; animNova.tremor = .2; animNova.postura = danoPendente >= 3 ? 0 : danoPendente; animNova.atordoado = danoPendente >= 3 ? .42 : 0; danosPendentes.delete(inimigo.id); }
+        inimigosAnimacao.set(inimigo.id, animNova);
       }
       const group = enemies.get(inimigo.id); const anim = inimigosAnimacao.get(inimigo.id); const parts = group.userData.parts;
       anim.tempo += dt; anim.flash = Math.max(0, anim.flash - dt); anim.tremor = Math.max(0, anim.tremor - dt); anim.atordoado = Math.max(0, anim.atordoado - dt);
-      anim.recuoX = aproximar(anim.recuoX, 0, dt, 7); anim.recuoZ = aproximar(anim.recuoZ, 0, dt, 7);
       const alertando = distancia < 2.9;
       if (alertando) { if (anim.telegraph < 0) anim.telegraph = .72; else { anim.telegraph -= dt; if (anim.telegraph <= 0) anim.telegraph = .9; } }
       else anim.telegraph = -.1;
       const carga = alertando ? 1 - Math.max(0, anim.telegraph) / .9 : 0;
       const aviso = alertando && (anim.telegraph < .36 || distancia < 2.25);
       group.visible = inimigo.vida > 0; if (!group.visible) return;
-      group.position.set(Math.max(-44, Math.min(44, inimigo.x + anim.recuoX)), 0, Math.max(-44, Math.min(44, inimigo.z + anim.recuoZ))); group.rotation.y = angulo;
+      group.position.set(inimigo.x, 0, inimigo.z); group.rotation.y = angulo;
       parts.body.position.set(0, 0, 0);
       const treme = anim.tremor > 0 ? Math.sin(anim.tempo * 72) * anim.tremor * .09 : 0;
       parts.body.rotation.x = (inimigo.tipo === 'lobo' ? 0 : .08) - anim.atordoado * .85 + (anim.flash > 0 ? -.22 : 0) + (aviso ? -.1 * carga : 0);
@@ -323,6 +427,7 @@
       if (estado.classe !== heroClass) { scene.remove(hero); hero = criarModeloHeroi(estado.classe); scene.remove(slash); hero.add(slash); heroClass = estado.classe; }
       const dt = Math.min(.1, Math.max(0, deltaSegundos)); const target = v(estado.x, 1.13 + salto, estado.z); controls.target.lerp(target, 1 - Math.exp(-9 * dt));
       const horizontal = controls.distance * Math.cos(controls.pitch); camera.position.set(controls.target.x + Math.sin(controls.yaw) * horizontal, controls.target.y + controls.distance * Math.sin(controls.pitch), controls.target.z + Math.cos(controls.yaw) * horizontal); camera.lookAt(controls.target);
+      ajustarCameraContraCenario(); camera.lookAt(controls.target);
       atualizarAnimacaoHeroi(dt, { x: estado.x, z: estado.z, angulo: anguloHeroi, salto, movendo: movendo && velocidade > .15, correndo });
       for (const e of estado.inimigos) {
         const distancia = Math.hypot(e.x - estado.x, e.z - estado.z); const angulo = Math.atan2(estado.x - e.x, -(estado.z - e.z));
@@ -341,7 +446,8 @@
       scenery.chest.visible = !estado.bausAberto; scenery.aura.intensity = chestNear ? 8 + Math.sin(tempo * 1.8) * 2 : .5;
       renderer.render(scene, camera);
     }
-    return { desenhar, moverCamera, orientarMovimento, dispararAnimacaoAtaqueHeroi, dispararDanoInimigo };
+    return { desenhar, moverCamera, orientarMovimento, dispararAnimacaoAtaqueHeroi, dispararDanoInimigo,
+      resolverColisaoHorizontal, moverComColisao, get colisoresCenario() { return colisoresCenario.slice(); } };
   }
   raiz.Mundo3D = { iniciar, criarTexturasProcedurais };
 })(window);

@@ -186,12 +186,35 @@
     const nivelAntes = estadoAventura.nivel;
     const derrotadosAntes = new Set(estadoAventura.inimigos.filter((inimigo) => inimigo.vida === 0).map((inimigo) => inimigo.id));
     const vidasAntes = new Map(estadoAventura.inimigos.map((inimigo) => [inimigo.id, inimigo.vida]));
+    const posicoesInimigosAntes = new Map(estadoAventura.inimigos.map((inimigo) => [inimigo.id, { x: inimigo.x, z: inimigo.z }]));
     const ataqueIniciado = ataqueSolicitado && estadoAventura.cooldown <= 0;
     const correndo = teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim';
+    const velocidade = correndo ? 8 : 5;
+    const comprimentoEntrada = Math.hypot(dx, dz) || 1;
+    const destinoPedido = { x: xAntes + dx / comprimentoEntrada * velocidade * dt,
+      z: zAntes + dz / comprimentoEntrada * velocidade * dt };
     estadoAventura = Regras.rpgAtualizar(estadoAventura, {
       dx, dz, correr: correndo,
       atacar: ataqueSolicitado, pular: puloSolicitado, interagir: interacaoSolicitada
     }, dtMs, Math.random);
+    // Regras continua sendo a autoridade do combate; o renderer resolve o deslocamento
+    // contra os colisores derivados das malhas e permite deslizar junto a obstáculos.
+    const destinoRegras = { x: estadoAventura.x, z: estadoAventura.z };
+    const regraImpediuMovimento = Math.hypot(destinoRegras.x - xAntes, destinoRegras.z - zAntes) < .0001
+      && Math.hypot(destinoPedido.x - xAntes, destinoPedido.z - zAntes) > .0001;
+    const destinoPedidoResolvido = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoPedido, .42);
+    if (regraImpediuMovimento && Math.hypot(destinoPedidoResolvido.x - destinoPedido.x, destinoPedidoResolvido.z - destinoPedido.z) > .005) {
+      destinoRegras.x = destinoPedidoResolvido.x; destinoRegras.z = destinoPedidoResolvido.z;
+    }
+    const posicaoHeroiResolvida = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoRegras, .42);
+    estadoAventura.x = posicaoHeroiResolvida.x; estadoAventura.z = posicaoHeroiResolvida.z;
+    // A IA mantém seu movimento original, mas cada passo é varrido contra a mesma lista de colisores.
+    for (const inimigo of estadoAventura.inimigos) {
+      const origem = posicoesInimigosAntes.get(inimigo.id);
+      if (!origem || inimigo.vida <= 0) continue;
+      const posicao = renderizador.moverComColisao(origem, { x: inimigo.x, z: inimigo.z }, .36);
+      inimigo.x = posicao.x; inimigo.z = posicao.z;
+    }
     const movimentoX = estadoAventura.x - xAntes, movimentoZ = estadoAventura.z - zAntes;
     if (Math.hypot(movimentoX,movimentoZ) > .0001) anguloHeroi = Math.atan2(-movimentoX,-movimentoZ);
     if (ataqueIniciado) renderizador.dispararAnimacaoAtaqueHeroi();
@@ -199,10 +222,13 @@
     const inimigosAtingidos = estadoAventura.inimigos.filter((inimigo) => inimigo.vida < (vidasAntes.get(inimigo.id) ?? inimigo.vida));
     if (inimigosAtingidos.length) tocarImpactoEspada();
     for (const inimigo of inimigosAtingidos) {
+      const dano = (vidasAntes.get(inimigo.id) || inimigo.vida) - inimigo.vida;
       const dxImpacto = inimigo.x - estadoAventura.x, dzImpacto = inimigo.z - estadoAventura.z;
       const distancia = Math.hypot(dxImpacto, dzImpacto) || 1;
-      const dano = (vidasAntes.get(inimigo.id) || inimigo.vida) - inimigo.vida;
-      renderizador.dispararDanoInimigo(inimigo.id, dxImpacto / distancia, dzImpacto / distancia, dano);
+      const destinoRecuo = { x: inimigo.x + dxImpacto / distancia * .3, z: inimigo.z + dzImpacto / distancia * .3 };
+      const recuoResolvido = renderizador.moverComColisao({ x: inimigo.x, z: inimigo.z }, destinoRecuo, .36);
+      inimigo.x = recuoResolvido.x; inimigo.z = recuoResolvido.z;
+      renderizador.dispararDanoInimigo(inimigo.id, dano);
     }
     if (puloSolicitado && saltoDecorrido === 0) saltoDecorrido = .55;
     puloSolicitado = false;
