@@ -57,6 +57,10 @@
       cameraPitch = Math.max(-.05, Math.min(.85, cameraPitch-dy*.004));
       cameraDistance = Math.max(7, Math.min(20, cameraDistance+zoom));
     }
+    function orientarMovimento(dx,dz) {
+      const c=Math.cos(cameraYaw), s=Math.sin(cameraYaw);
+      return { dx: dx*c + dz*s, dz: -dx*s + dz*c };
+    }
     function desenhar(estado, agora, salto, ataque) {
       const dpr=Math.min(window.devicePixelRatio||1,1.5), w=Math.max(1,Math.floor(canvas.clientWidth*dpr)), h=Math.max(1,Math.floor(canvas.clientHeight*dpr));
       if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h);}
@@ -174,7 +178,7 @@
       // Bússola simples formada por quatro marcos de pedra.
       for(const [x,z] of [[-44,-44],[44,-44],[-44,44],[44,44]]) box(x,.8,z,1.2,1.6,1.2,[.45,.43,.37]);
     }
-    return { desenhar, moverCamera };
+    return { desenhar, moverCamera, orientarMovimento };
   }
   function hex(s) { const n=parseInt(s.slice(1),16); return [((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255]; }
   raiz.Mundo3D={ iniciar };

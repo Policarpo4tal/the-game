@@ -145,8 +145,9 @@
     const direita = teclas.has('d') || teclas.has('arrowright');
     const frente = teclas.has('w') || teclas.has('arrowup');
     const tras = teclas.has('s') || teclas.has('arrowdown');
-    const dx = joystick.dx + (direita ? 1 : 0) - (esquerda ? 1 : 0);
-    const dz = joystick.dz + (tras ? 1 : 0) - (frente ? 1 : 0);
+    const dxLocal = joystick.dx + (direita ? 1 : 0) - (esquerda ? 1 : 0);
+    const dzLocal = joystick.dz + (tras ? 1 : 0) - (frente ? 1 : 0);
+    const { dx, dz } = renderizador ? renderizador.orientarMovimento(dxLocal, dzLocal) : { dx: dxLocal, dz: dzLocal };
     const bauAntes = estadoAventura.bausAberto;
     const abatesAntes = estadoAventura.inimigosDerrotados;
     const nivelAntes = estadoAventura.nivel;
