@@ -2,14 +2,15 @@
 (function (raiz) {
   'use strict';
 
-  // Brisa discreta: intensidade e opacidade baixas por padrão para não competir com o combate.
+  // Vento legível, mas apagado: partículas claras pequenas sem brilho emissivo.
   const CONFIG_VENTO = Object.freeze({
-    intensidade: .28,
+    intensidade: .45,
     velocidadeBase: 1.4,
     direcaoX: .85,
     direcaoZ: .52,
-    opacidadeParticulas: .12,
-    quantidadeParticulas: 42
+    opacidadeParticulas: .28,
+    quantidadeParticulas: 72,
+    raioVisivel: 16
   });
 
   function criarTexturasProcedurais() {
@@ -59,6 +60,8 @@
     const camera = new T.PerspectiveCamera(55, 1, .1, 180);
     const controls = { yaw: 0, pitch: .3, distance: 8.5, target: new T.Vector3(0, 1.15, 2) };
     const textures = criarTexturasProcedurais();
+    let salaDoReiAtiva = false;
+    const centroSalaRei = { x: 0, z: -100 };
     Object.values(textures.chao).forEach(t => { if (t.repeat) t.repeat.set(9, 9); });
     Object.values(textures.muro).forEach(t => { if (t.repeat) t.repeat.set(1.4, 1.4); });
     const mat = {
@@ -334,15 +337,15 @@
       const quantidade = CONFIG_VENTO.quantidadeParticulas;
       const dados = new Float32Array(quantidade * 3), fases = new Float32Array(quantidade);
       for (let i = 0; i < quantidade; i++) {
-        dados[i * 3] = (numeroDeterministico(i, 44) - .5) * 48;
+        dados[i * 3] = (numeroDeterministico(i, 44) - .5) * CONFIG_VENTO.raioVisivel * 2;
         dados[i * 3 + 1] = .7 + numeroDeterministico(i, 45) * 3.6;
-        dados[i * 3 + 2] = (numeroDeterministico(i, 46) - .5) * 48;
+        dados[i * 3 + 2] = (numeroDeterministico(i, 46) - .5) * CONFIG_VENTO.raioVisivel * 2;
         fases[i] = numeroDeterministico(i, 47) * Math.PI * 2;
       }
       const geometria = new T.BufferGeometry(); geometria.setAttribute('position', new T.BufferAttribute(dados, 3));
-      const material = new T.PointsMaterial({ color: 0x8d9aa1, size: .045, sizeAttenuation: true,
-        transparent: true, opacity: CONFIG_VENTO.opacidadeParticulas, depthWrite: false, toneMapped: true });
-      const pontos = new T.Points(geometria, material); pontos.frustumCulled = false; pontos.renderOrder = 1; grupo.add(pontos);
+      const material = new T.PointsMaterial({ color: 0xb8c2c8, size: .11, sizeAttenuation: true,
+        transparent: true, opacity: CONFIG_VENTO.opacidadeParticulas, depthWrite: false, toneMapped: false });
+      const pontos = new T.Points(geometria, material); pontos.frustumCulled = false; pontos.renderOrder = 3; grupo.add(pontos);
       return { grupo, pontos, dados, fases, geometria };
     }
 
@@ -564,10 +567,113 @@
       return { grupo, portal, luzes, entrada: { x: 0, z: frenteZ, largura: 8.7 } };
     }
 
+    // Portal em anéis discretos; a malha visual não participa das colisões.
+    function criarPortalEscuroCastelo(cena, texturas, x = 0, z = -42.02, nome = 'portal-escuro-castelo') {
+      const grupo = new T.Group(); grupo.name = nome; grupo.position.set(x, 0, z); cena.add(grupo);
+      const vazio = new T.MeshBasicMaterial({ color: 0x080a10, transparent: true, opacity: .83, depthWrite: false, side: T.DoubleSide });
+      const centro = new T.Mesh(new T.PlaneGeometry(4.6, 4.7), vazio); centro.position.y = 2.45; grupo.add(centro);
+      const aneis = [];
+      for (let i = 0; i < 3; i++) {
+        const anel = new T.Mesh(new T.TorusGeometry(1.45 + i * .31, .035 + i * .008, 6, 48),
+          new T.MeshBasicMaterial({ color: i === 1 ? 0x687080 : 0x252a35, transparent: true, opacity: .26 - i * .035, depthWrite: false }));
+        anel.position.set(0, 2.42, -.025 - i * .01); anel.scale.y = 1.52; grupo.add(anel); aneis.push(anel);
+      }
+      const brilho = new T.PointLight(0x66728a, 3.2, 9, 2); brilho.position.set(0, 2.5, -.6); grupo.add(brilho);
+      const motes = [];
+      for (let i = 0; i < 12; i++) {
+        const mote = new T.Mesh(new T.SphereGeometry(.025 + (i % 3) * .008, 6, 5), new T.MeshBasicMaterial({ color: 0x626979, transparent: true, opacity: .3, depthWrite: false }));
+        mote.userData.fase = i * 1.73; grupo.add(mote); motes.push(mote);
+      }
+      return { grupo, aneis, brilho, motes };
+    }
+
+    // Salão remoto (36 x 48): colunas nos flancos, nave central e trono ao norte.
+    function criarSalaDoRei(cena, texturas) {
+      const salao = new T.Group(); salao.name = 'sala-do-rei'; salao.position.set(0, 0, -100); salao.userData.registrarSolidos = true; cena.add(salao);
+      const piso = new T.Mesh(new T.PlaneGeometry(36, 48), mat.ground); piso.rotation.x = -Math.PI / 2; piso.position.set(0, -.12, 0); piso.receiveShadow = true; salao.add(piso);
+      const pedra = new T.MeshStandardMaterial({ ...texturas.muro, color: 0x65646a, roughness: .98, bumpScale: .16 });
+      const passadeira = new T.MeshStandardMaterial({ color: 0x5d4440, roughness: .97 });
+      const douradoEscuro = new T.MeshStandardMaterial({ color: 0x665334, metalness: .64, roughness: .52 });
+      box(salao, 0, -.035, 0, 3.7, .08, 46, passadeira, 0, false);
+      // Paredes delimitam 36 x 48; o portal sul tem vão central de 8 unidades.
+      for (const lado of [-1, 1]) box(salao, lado * 18, 6, 0, .9, 12, 48, pedra);
+      box(salao, 0, 6, -24, 36, 12, .9, pedra);
+      for (const lado of [-1, 1]) box(salao, lado * 13.5, 6, 24, 9, 12, .9, pedra);
+      box(salao, 0, 11.5, 0, 36, 1, 48, pedra, 0, false);
+      const fresta = new T.MeshStandardMaterial({ color: 0x101722, emissive: 0x263342, emissiveIntensity: .24, roughness: .8 });
+      for (const lado of [-1, 1]) for (const z of [-17, -9, 0, 9, 17]) {
+        box(salao, lado * 17.48, 7.2, z, .035, 1.55, .34, fresta, 0, false);
+        box(salao, lado * 17.44, 8.05, z, .12, .12, .58, pedra, 0, false);
+      }
+      // Seis pilares: x=±12 nos flancos e z=-10,0,+10, preservando a nave central.
+      for (const x of [-12, 12]) for (const z of [-10, 0, 10]) {
+        const pilar = rootScene(salao, [x, 0, z]);
+        box(pilar, 0, .22, 0, 2.15, .44, 2.15, pedra, 0, false);
+        mesh(cylGeo, pedra, pilar, [0, 5.15, 0], [.72, 9.5, .72], true, false);
+        box(pilar, 0, 10.05, 0, 1.65, .45, 1.65, pedra, 0, false);
+        box(pilar, 0, 10.45, 0, 2.1, .35, 2.1, pedra, 0, false);
+        registrarColisorCirculo(pilar, () => salaDoReiAtiva, 0);
+      }
+      // Estrado e trono monumental no fundo, depois da fileira norte de pilares.
+      box(salao, 0, .28, -18.8, 9.5, .56, 6.2, pedra);
+      box(salao, 0, .67, -20.2, 7.4, .25, 3.2, douradoEscuro);
+      box(salao, 0, 2.15, -21.5, 3.2, 3.15, .65, pedra);
+      box(salao, 0, 3.5, -21.82, 2.35, .28, .38, douradoEscuro);
+      for (const x of [-2.0, 2.0]) { box(salao, x, 1.35, -20.5, .72, 1.25, 2.3, pedra); box(salao, x, 2.02, -20.5, .92, .16, 2.45, douradoEscuro); }
+      for (const x of [-5.1, 5.1]) {
+        const braseiro = new T.Mesh(coneGeo, mat.ember); braseiro.position.set(x, 1.7, -21); braseiro.scale.set(.42, 1.2, .42); salao.add(braseiro);
+        const luz = new T.PointLight(0xff7138, 16, 13, 2); luz.position.set(x, 2.2, -21); salao.add(luz);
+      }
+      const luzFria = new T.HemisphereLight(0x8994aa, 0x21191b, .5); luzFria.position.set(0, 10, 0); salao.add(luzFria);
+      return salao;
+    }
+
+    function criarBossCastelo(cena, texturas) {
+      const raizBoss = new T.Group(); raizBoss.name = 'boss-rei-caido'; cena.add(raizBoss);
+      raizBoss.position.set(0, 0, -114); raizBoss.visible = false;
+      const corpo = new T.Group(); raizBoss.add(corpo);
+      corpo.scale.setScalar(1.25); // 3,55 × 1,25 ≈ 4,4 unidades, cerca de 2,45× o herói.
+      const armadura = new T.MeshStandardMaterial({ ...texturas.metal, color: 0x30353d, metalness: .78, roughness: .48 });
+      const manto = new T.MeshStandardMaterial({ color: 0x17161d, roughness: .98, side: T.DoubleSide });
+      orb(corpo, 0, 2.25, 0, .64, .76, .43, armadura);
+      box(corpo, 0, 2.16, -.04, .98, .86, .56, armadura);
+      const elmo = mesh(new T.ConeGeometry(.52, .85, 6), armadura, corpo, [0, 3.13, -.02], [1, 1, .9]); elmo.rotation.z = Math.PI;
+      box(corpo, 0, 3.04, -.42, .4, .07, .06, mat.eye, 0, false);
+      for (const side of [-1, 1]) {
+        orb(corpo, side * .72, 2.52, 0, .38, .34, .39, armadura);
+        link(corpo, [side * .63, 2.35, 0], [side * .75, 1.42, -.05], .2, armadura);
+        link(corpo, [side * .31, 1.72, 0], [side * .36, .62, 0], .23, armadura);
+        box(corpo, side * .35, .12, -.08, .62, .24, .9, armadura);
+      }
+      const capa = new T.Mesh(new T.ConeGeometry(1.05, 2.45, 8, 2, true), manto); capa.position.set(0, 1.55, .48); capa.rotation.x = Math.PI; corpo.add(capa);
+      const mao = new T.Group(); mao.position.set(.86, 1.42, -.12); corpo.add(mao);
+      link(mao, [0, -.22, 0], [0, .34, 0], .075, mat.leather);
+      box(mao, 0, .58, 0, .18, .32, .18, armadura);
+      const arma = new T.Group(); arma.position.set(0, 0, 0); mao.add(arma);
+      link(arma, [0, -.24, 0], [0, .1, 0], .075, mat.wood);
+      box(arma, 0, .19, 0, .8, .12, .14, armadura);
+      const lamina = new T.Mesh(new T.BoxGeometry(.27, 2.35, .12), armadura); lamina.position.y = 1.38; arma.add(lamina);
+      mesh(new T.ConeGeometry(.19, .52, 4), armadura, arma, [0, 2.79, 0], [1, 1, .62]);
+      const vidaGrupo = new T.Group(); vidaGrupo.position.set(0, 4.3, 0); raizBoss.add(vidaGrupo);
+      const fundo = new T.Mesh(new T.PlaneGeometry(2.7, .19), new T.MeshBasicMaterial({ color: 0x110909, side: T.DoubleSide })); vidaGrupo.add(fundo);
+      const preenchimento = new T.Mesh(new T.PlaneGeometry(2.62, .12), new T.MeshBasicMaterial({ color: 0xb83327, side: T.DoubleSide })); preenchimento.position.z = .012; vidaGrupo.add(preenchimento);
+      const miraBoss = new T.Group(); miraBoss.position.set(0, 2.45, -.56); raizBoss.add(miraBoss);
+      mesh(new T.OctahedronGeometry(.19), mat.mira, miraBoss, [0, 0, 0], [1, 1.3, 1], false, false);
+      const aroBoss = new T.Mesh(new T.TorusGeometry(.32, .024, 6, 28), mat.mira); miraBoss.add(aroBoss);
+      miraBoss.visible = false;
+      return { raizBoss, corpo, arma, capa, preenchimento, vidaGrupo, miraBoss, aroBoss };
+    }
+
     mat.ember.userData.semColisao = true;
     const scenery = criarCenario();
     scenery.muralha = criarMuralhaVila(scene, textures);
     scenery.castelo = criarCasteloFimDaEstrada(scene, textures);
+    scenery.portalEntrada = criarPortalEscuroCastelo(scene, textures, 0, -42.02, 'portal-escuro-castelo');
+    scenery.salaRei = criarSalaDoRei(scene, textures);
+    scenery.portalRetorno = criarPortalEscuroCastelo(scene, textures, 0, -78, 'portal-retorno-sala-rei');
+    scenery.boss = criarBossCastelo(scene, textures);
+    scenery.salaRei.visible = false; scenery.portalRetorno.grupo.visible = false;
+    registrarColisorCirculo(scenery.boss.raizBoss, () => salaDoReiAtiva && scenery.boss.vida > 0, .12);
     scenery.montanhas = criarMontanhasHorizonte(scene, textures);
     scenery.detalhes = popularDetalhesCenario(scene, textures);
     const vento = criarParticulasVento(scene);
@@ -575,7 +681,7 @@
     function atualizarVentoAmbiente(dt, tempoTotal) {
       const delta = Math.min(.1, Math.max(0, dt || 0));
       const tempo = Math.max(0, tempoTotal || 0), intensidade = Math.max(0, CONFIG_VENTO.intensidade);
-      const visibilidadeBrisa = Math.min(1, intensidade / .28);
+      const visibilidadeBrisa = Math.min(1, intensidade / .45);
       const direcaoComprimento = Math.hypot(CONFIG_VENTO.direcaoX, CONFIG_VENTO.direcaoZ) || 1;
       const direcaoX = CONFIG_VENTO.direcaoX / direcaoComprimento, direcaoZ = CONFIG_VENTO.direcaoZ / direcaoComprimento;
       const faseGeral = tempo * CONFIG_VENTO.velocidadeBase;
@@ -588,10 +694,11 @@
         const indice = i * 3, fase = faseGeral + vento.fases[i];
         vento.dados[indice] += direcaoX * deslocamento;
         vento.dados[indice + 2] += direcaoZ * deslocamento;
-        if (vento.dados[indice] > 24) vento.dados[indice] -= 48;
-        else if (vento.dados[indice] < -24) vento.dados[indice] += 48;
-        if (vento.dados[indice + 2] > 24) vento.dados[indice + 2] -= 48;
-        else if (vento.dados[indice + 2] < -24) vento.dados[indice + 2] += 48;
+        const raio = CONFIG_VENTO.raioVisivel;
+        if (vento.dados[indice] > raio) vento.dados[indice] -= raio * 2;
+        else if (vento.dados[indice] < -raio) vento.dados[indice] += raio * 2;
+        if (vento.dados[indice + 2] > raio) vento.dados[indice + 2] -= raio * 2;
+        else if (vento.dados[indice + 2] < -raio) vento.dados[indice + 2] += raio * 2;
         vento.dados[indice + 1] = .7 + numeroDeterministico(i, 45) * 3.6 + Math.sin(fase) * .014 * intensidade;
       }
       vento.geometria.attributes.position.needsUpdate = true;
@@ -627,9 +734,17 @@
         fogo.scale.y = .92 + .07 * Math.sin(faseGeral * 1.05 + fogo.userData.phase);
         fogo.rotation.z = Math.sin(faseGeral * .75 + fogo.userData.phase) * .025;
       }
+      for (const portal of [scenery.portalEntrada, scenery.portalRetorno]) {
+        portal.grupo.visible = portal === scenery.portalRetorno ? salaDoReiAtiva : !salaDoReiAtiva;
+        for (let i = 0; i < portal.aneis.length; i++) portal.aneis[i].rotation.z = tempo * (.13 + i * .045) * (i % 2 ? -1 : 1);
+        portal.brilho.intensity = 2.8 + Math.sin(tempo * 1.25) * .35;
+        portal.motes.forEach((mote, i) => { const fase = tempo * .38 + mote.userData.fase; mote.position.set(Math.cos(fase) * (.75 + i % 4 * .18), 1.15 + (i % 5) * .63 + Math.sin(fase * .7) * .08, -.08); });
+      }
     }
-    function colisorAtivo(colisor) { return colisor.ativo !== false && (!colisor.condicao || colisor.condicao()); }
+    function colisorAtivo(colisor) { return colisor.ativo !== false && !colisor.temporariamenteIgnorado && (!colisor.condicao || colisor.condicao()); }
     function limitarAoMapa(pos, raio) {
+      if (salaDoReiAtiva) return { x: Math.max(-17.35 + raio, Math.min(17.35 - raio, pos.x)),
+        z: Math.max(-123.35 + raio, Math.min(-76.65 - raio, pos.z)) };
       return { x: Math.max(-limiteArena + raio, Math.min(limiteArena - raio, pos.x)),
         z: Math.max(-limiteArena + raio, Math.min(limiteArena - raio, pos.z)) };
     }
@@ -681,6 +796,13 @@
       for (const eixo of eixos) { p[eixo] = destino[eixo]; p = resolverColisaoHorizontal(p, raio); }
       return p;
     }
+    function moverBossComColisao(origem, destino, raio = .72) {
+      const colisorBoss = colisoresCenario.find((colisor) => colisor.objeto === scenery.boss.raizBoss);
+      if (colisorBoss) colisorBoss.temporariamenteIgnorado = true;
+      const posicao = moverComColisao(origem, destino, raio);
+      if (colisorBoss) colisorBoss.temporariamenteIgnorado = false;
+      return posicao;
+    }
     const raycasterCamera = new T.Raycaster();
     const cameraAlvoTmp = new T.Vector3(), cameraDirecaoTmp = new T.Vector3();
     function ajustarCameraContraCenario() {
@@ -701,51 +823,288 @@
     function marker(parent, radius, color) {
       const ring = new T.Mesh(new T.TorusGeometry(radius, .028, 6, 40), new T.MeshBasicMaterial({ color, transparent: true, opacity: .48 })); ring.rotation.x = -Math.PI / 2; ring.position.y = .035; parent.add(ring); return ring;
     }
+
+    function criarElmoGuerreiro(head, steel) {
+      // Casco fechado, sobrancelha, viseira e crista: a frente é sempre o eixo -Z.
+      mesh(new T.SphereGeometry(.24, 16, 12, 0, Math.PI * 2, 0, Math.PI * .72), steel,
+        head, [0, .045, 0], [1.08, 1.16, 1.02]);
+      box(head, 0, -.105, -.168, .31, .19, .105, steel);
+      box(head, 0, -.048, -.222, .205, .027, .018,
+        new T.MeshStandardMaterial({ color: 0x11151a, emissive: 0x263039, emissiveIntensity: .28, roughness: .42 }), 0, false);
+      box(head, 0, .005, -.213, .35, .055, .075, steel, 0, false);
+      for (const side of [-1, 1]) {
+        const cheek = box(head, side * .155, -.14, -.11, .09, .23, .17, steel, side * .12, false);
+        cheek.rotation.z = side * -.12;
+      }
+      // Crista curta e estreita, para reforçar a silhueta sem exagerar a altura.
+      link(head, [0, .18, .025], [0, .315, .07], .034, steel, 7);
+      for (const y of [-.12, -.2]) box(head, 0, y, -.2, .2, .027, .025, mat.leather, 0, false);
+    }
+
+    function criarCapaArticulada(parent, classe) {
+      const capa = rootScene(parent, [0, 1.47, .18]);
+      capa.name = 'capa'; capa.userData.articulada = true;
+      const colunas = 8, linhas = 14, vertices = (colunas + 1) * (linhas + 1);
+      const posicoes = new Float32Array(vertices * 3), cores = new Float32Array(vertices * 3);
+      const uv = new Float32Array(vertices * 2), indices = [];
+      for (let linha = 0; linha <= linhas; linha++) {
+        const v = linha / linhas;
+        const largura = .31 + .2 * v;
+        for (let coluna = 0; coluna <= colunas; coluna++) {
+          const u = coluna / colunas, i = linha * (colunas + 1) + coluna;
+          posicoes[i * 3] = (u - .5) * largura;
+          posicoes[i * 3 + 1] = -1.34 * v;
+          posicoes[i * 3 + 2] = 0;
+          uv[i * 2] = u; uv[i * 2 + 1] = 1 - v;
+          const vinco = .91 + .09 * Math.cos((u - .5) * Math.PI * 8);
+          const escuro = classe === 'Guerreiro' ? .82 - .22 * v : .96 - .12 * v;
+          cores[i * 3] = .105 * escuro * vinco;
+          cores[i * 3 + 1] = .105 * escuro * vinco;
+          cores[i * 3 + 2] = .13 * escuro * vinco;
+          if (linha < linhas && coluna < colunas) {
+            const a = i, b = i + colunas + 1;
+            indices.push(a, b, a + 1, b, b + 1, a + 1);
+          }
+        }
+      }
+      const geometria = new T.BufferGeometry();
+      geometria.setAttribute('position', new T.BufferAttribute(posicoes, 3));
+      geometria.setAttribute('color', new T.BufferAttribute(cores, 3));
+      geometria.setAttribute('uv', new T.BufferAttribute(uv, 2));
+      geometria.setIndex(indices); geometria.computeVertexNormals();
+      const material = new T.MeshStandardMaterial({ color: 0xffffff, vertexColors: true,
+        roughness: .88, metalness: .08, side: T.DoubleSide });
+      const tecido = new T.Mesh(geometria, material);
+      tecido.name = 'tecido-capa-segmentado'; tecido.castShadow = true; tecido.receiveShadow = true;
+      capa.add(tecido);
+      capa.userData.estadoTecido = { tecido, base: posicoes.slice(), colunas, linhas, velocidadeFrente: 0, velocidadeLateral: 0, giro: 0 };
+      return capa;
+    }
+
+    // Deforma a malha por linhas: o balanço nasce na gola e chega atrasado à barra.
+    function atualizarCapaGuerreiro(dt, capa, velocidadeLocal, esquiva, giro, tempo) {
+      if (!capa?.userData.articulada) return;
+      const estado = capa.userData.estadoTecido;
+      const intensidade = Math.max(0, Math.min(1, Math.hypot(velocidadeLocal.frente, velocidadeLocal.lado) / 8));
+      estado.velocidadeFrente = aproximar(estado.velocidadeFrente, velocidadeLocal.frente / 8, dt, 3.2);
+      estado.velocidadeLateral = aproximar(estado.velocidadeLateral, velocidadeLocal.lado / 8, dt, 3.8);
+      estado.giro = aproximar(estado.giro, Math.max(-1, Math.min(1, giro / 3)), dt, 4.5);
+      const { tecido, base, colunas, linhas } = estado;
+      const dados = tecido.geometry.attributes.position;
+      const impulso = esquiva?.ativa ? 1 - Math.abs(2 * esquiva.progresso - 1) : 0;
+      for (let linha = 0; linha <= linhas; linha++) {
+        const v = linha / linhas, ondaAtrasada = tempo * (5.1 + intensidade * 1.7) - v * 7.2;
+        for (let coluna = 0; coluna <= colunas; coluna++) {
+          const i = linha * (colunas + 1) + coluna;
+          const xBase = base[i * 3], yBase = base[i * 3 + 1], zBase = base[i * 3 + 2];
+          const onda = Math.sin(ondaAtrasada + coluna * .72 + v * 2.1);
+          const atrasoBarra = Math.pow(v, 1.35);
+          const balançoVento = balancoVentoHeroi * .025;
+          dados.setXYZ(i,
+            xBase + atrasoBarra * (-estado.velocidadeLateral * .17 + estado.giro * .075) + onda * .035 * atrasoBarra,
+            yBase + atrasoBarra * (intensidade * .13 + impulso * .2) + Math.sin(ondaAtrasada - coluna * .3) * .025 * atrasoBarra,
+            zBase + atrasoBarra * (.055 + estado.velocidadeFrente * .28 + impulso * .25 + balançoVento)
+              + onda * atrasoBarra * (.018 + intensidade * .075 + impulso * .055));
+        }
+      }
+      dados.needsUpdate = true;
+      tecido.geometry.computeVertexNormals();
+      tecido.geometry.computeBoundingSphere();
+    }
+
+    function criarEspadaGuerreiro(grupoMaoDireita) {
+      // Todas as medidas Y são locais à espada; (0, 0, 0) fica no meio do cabo,
+      // exatamente onde a palma fecha. A frente do herói aponta para -Z.
+      const L_CABO = .24;                 // Comprimento do couro entre pomo e guarda.
+      const ALTURA_POMO = .10;            // Altura do pomo abaixo do cabo.
+      const ESPESSURA_GUARDA = .07;       // Espessura vertical da guarda transversal.
+      const L_LAMINA = 1.0;               // Comprimento livre da lâmina após a guarda.
+      const LARGURA_GUARDA = .46;         // Extensão da guarda ao longo de X.
+      const ESPESSURA_LAMINA = .05;       // Profundidade da lâmina no eixo Z.
+      // Como a frente do herói é -Z, o sinal negativo inclina +Y para a frente.
+      const ANGULO_EMPUNHADURA_X = -Math.PI * .42;
+      const yCentroPomo = -(L_CABO / 2) - (ALTURA_POMO / 2);
+      const yCentroGuarda = (L_CABO / 2) + (ESPESSURA_GUARDA / 2);
+      const yCentroLamina = (L_CABO / 2) + ESPESSURA_GUARDA + (L_LAMINA / 2);
+      const grupoEspada = new T.Group();
+      grupoEspada.name = 'grupoEspada';
+      grupoMaoDireita.add(grupoEspada);
+      grupoEspada.position.set(0, 0, 0);
+      grupoEspada.rotation.set(ANGULO_EMPUNHADURA_X, 0, 0);
+
+      // Cabo octogonal: vai de -L_CABO/2 a +L_CABO/2, centrado na palma.
+      const cabo = new T.Mesh(new T.CylinderGeometry(.047, .052, L_CABO, 8), mat.leather);
+      cabo.name = 'cabo'; cabo.castShadow = true; cabo.receiveShadow = true; grupoEspada.add(cabo);
+      for (const y of [-.07, 0, .07]) {
+        const faixa = new T.Mesh(new T.TorusGeometry(.049, .008, 5, 8), mat.wood);
+        faixa.position.y = y; faixa.castShadow = false; grupoEspada.add(faixa);
+      }
+
+      // Pomo encosta na borda inferior do cabo e não invade a palma.
+      const pommel = new T.Mesh(new T.SphereGeometry(1, 10, 8), mat.gold);
+      pommel.name = 'pommel'; pommel.position.y = yCentroPomo;
+      pommel.scale.set(.075, ALTURA_POMO / 2, .075); pommel.castShadow = true; grupoEspada.add(pommel);
+
+      // Guarda horizontal em X, com a face inferior exatamente no topo do cabo.
+      const guardaMao = new T.Mesh(new T.BoxGeometry(LARGURA_GUARDA, ESPESSURA_GUARDA, .09), mat.gold);
+      guardaMao.name = 'guardaMao'; guardaMao.position.y = yCentroGuarda;
+      guardaMao.castShadow = true; grupoEspada.add(guardaMao);
+
+      // Lâmina em forma de perfil, centrada no y previsto: sua base começa acima da guarda.
+      const perfil = new T.Shape();
+      perfil.moveTo(-.105, -L_LAMINA / 2);
+      perfil.lineTo(-.105, L_LAMINA * .34);
+      perfil.lineTo(-.066, L_LAMINA * .44);
+      perfil.lineTo(0, L_LAMINA / 2);
+      perfil.lineTo(.066, L_LAMINA * .44);
+      perfil.lineTo(.105, L_LAMINA * .34);
+      perfil.lineTo(.105, -L_LAMINA / 2);
+      perfil.closePath();
+      const geometriaLamina = new T.ExtrudeGeometry(perfil, {
+        depth: ESPESSURA_LAMINA, bevelEnabled: true, bevelSegments: 1, steps: 1,
+        bevelSize: .014, bevelThickness: .012
+      });
+      geometriaLamina.translate(0, 0, -ESPESSURA_LAMINA / 2);
+      const materialLamina = new T.MeshStandardMaterial({ ...textures.metal,
+        color: 0x8a969c, metalness: .88, roughness: .39 });
+      const lamina = new T.Mesh(geometriaLamina, materialLamina);
+      lamina.name = 'lamina'; lamina.position.y = yCentroLamina;
+      lamina.castShadow = true; lamina.receiveShadow = true; grupoEspada.add(lamina);
+
+      // Sulco central raso acompanha a lâmina sem alterar seu volume ou o pivô.
+      const sulco = new T.Mesh(new T.BoxGeometry(.014, L_LAMINA * .52, .006),
+        new T.MeshStandardMaterial({ color: 0x465158, metalness: .62, roughness: .56 }));
+      sulco.name = 'sulco-central';
+      sulco.position.set(0, yCentroLamina + .015, -ESPESSURA_LAMINA / 2 - .003);
+      sulco.castShadow = false; grupoEspada.add(sulco);
+
+      return grupoEspada;
+    }
+
     function criarArma(parent, classe, armor) {
+      if (classe === 'Guerreiro') return criarEspadaGuerreiro(parent);
       const weapon = new T.Group(); parent.add(weapon);
       if (classe === 'Mago') {
-        link(weapon, [0, .52, 0], [0, 1.58, -.1], .065, mat.wood); link(weapon, [-.12, 1.48, -.1], [.12, 1.48, -.1], .04, mat.gold);
-        const crystal = mesh(new T.OctahedronGeometry(.24, 0), new T.MeshStandardMaterial({ color: 0x64b9ff, emissive: 0x2a78ff, emissiveIntensity: 2.5, metalness: .25 }), weapon, [0, 1.82, -.1]); weapon.userData.crystal = crystal;
+        // O cajado parte da palma e cresce no eixo Y, inclinado para a frente (-Z).
+        link(weapon, [0, -.28, 0], [0, .88, -.18], .065, mat.wood);
+        link(weapon, [-.13, .72, -.16], [.13, .72, -.16], .04, mat.gold);
+        const crystal = mesh(new T.OctahedronGeometry(.24, 0), new T.MeshStandardMaterial({ color: 0x64b9ff, emissive: 0x2a78ff, emissiveIntensity: 2.5, metalness: .25 }), weapon, [0, 1.08, -.2]); weapon.userData.crystal = crystal;
       } else if (classe === 'Arqueiro') {
-        for (let i = 0; i < 8; i++) { const a = -.9 + i * .23; link(weapon, [Math.sin(a) * .48, .55 + i * .09, 0], [Math.sin(a + .16) * .62, .7 + i * .09, 0], .035, mat.wood); }
-        link(weapon, [0, .55, -.02], [0, 1.6, -.02], .012, mat.iron);
+        // Arco simétrico em torno do punho; corda e empunhadura ficam junto à palma.
+        for (let i = 0; i < 8; i++) {
+          const a = -.78 + i * .195;
+          link(weapon, [Math.sin(a) * .43, -.42 + i * .12, 0], [Math.sin(a + .14) * .5, -.3 + i * .12, 0], .035, mat.wood);
+        }
+        link(weapon, [0, -.44, -.045], [0, .46, -.045], .012, mat.iron);
+        link(weapon, [0, -.12, -.08], [0, .12, -.08], .055, mat.leather);
       } else if (classe === 'Assassino') {
-        link(weapon, [0, .48, 0], [0, .83, 0], .06, mat.leather); link(weapon, [0, .83, 0], [-.12, 1.35, -.1], .045, mat.iron);
+        // Adaga curta: cabo centrado na mão e lâmina projetada para cima/frente.
+        link(weapon, [0, -.16, 0], [0, .13, -.025], .06, mat.leather);
+        link(weapon, [0, .12, -.025], [-.1, .62, -.13], .045, mat.iron);
       } else {
-        link(weapon, [0, .48, 0], [0, .83, 0], .075, mat.wood); link(weapon, [-.2, .83, 0], [.2, .83, 0], .052, mat.gold); link(weapon, [0, .83, 0], [0, 1.68, -.08], .085, mat.iron); link(weapon, [0, 1.68, -.08], [0, 1.85, -.09], .12, mat.gold);
+        // Espada/maça: guarda acima do centro do cabo; lâmina sobe e aponta à frente.
+        link(weapon, [0, -.17, 0], [0, .16, -.015], .075, mat.wood);
+        link(weapon, [-.2, .17, -.04], [.2, .17, -.04], .052, mat.gold);
+        link(weapon, [0, .16, -.015], [0, .82, -.2], .085, mat.iron);
+        link(weapon, [0, .82, -.2], [0, .98, -.24], .12, mat.gold);
       }
+      weapon.name = `arma-${classe.toLowerCase()}`;
       return weapon;
     }
     function criarModeloHeroi(classe) {
-      const root = new T.Group(); scene.add(root);
-      const skin = mat.skin, steel = classe === 'Paladino' ? mat.gold : mat.iron;
+      const root = new T.Group(); root.name = 'grupoHeroi'; scene.add(root);
+      const skin = mat.skin;
+      const açoGuerreiro = classe === 'Guerreiro'
+        ? new T.MeshStandardMaterial({ ...textures.metal, color: 0x747d84, metalness: .84, roughness: .44, bumpScale: .025 }) : null;
+      const steel = classe === 'Paladino' ? mat.gold : açoGuerreiro || mat.iron;
       const torso = rootScene(root, [0, 0, 0]); torso.name = 'tronco';
       // Tronco anatômico em camadas: couraça, pescoço, ombreiras e cinturão.
-      const chest = mesh(new T.CapsuleGeometry(.31, .42, 4, 8), new T.MeshStandardMaterial({ color: new T.Color(Regras.CLASSES[classe].cor), metalness: .42, roughness: .6 }), torso, [0, 1.08, 0], [1, 1, .72]);
+      const materialPeitoral = classe === 'Guerreiro' ? steel
+        : new T.MeshStandardMaterial({ color: new T.Color(Regras.CLASSES[classe].cor), metalness: .42, roughness: .6 });
+      const chest = mesh(new T.CapsuleGeometry(.31, .42, 4, 8), materialPeitoral, torso, [0, 1.08, 0], [1, 1, .72]);
       orb(torso, 0, 1.39, -.02, .34, .22, .28, steel); cyl(torso, 0, .84, 0, .34, .13, .25, mat.leather);
       box(torso, 0, .84, -.17, .15, .14, .035, mat.gold); cyl(torso, 0, 1.4, 0, .12, .16, .12, skin);
+      if (classe === 'Guerreiro') {
+        // Relevos da couraça, rebites e faldões sobre o cinto.
+        link(torso, [0, 1.34, -.205], [0, .94, -.226], .018, mat.gold, 7);
+        for (const lado of [-1, 1]) {
+          const placaPeito = mesh(new T.SphereGeometry(1, 12, 8), steel, torso,
+            [lado * .145, 1.17, -.19], [.16, .14, .07]);
+          placaPeito.rotation.z = lado * -.18;
+          for (const y of [.72, .57]) {
+            const faldão = box(torso, lado * .19, y, -.13, .28, .18, .09, steel, lado * -.08, false);
+            faldão.castShadow = true;
+          }
+        }
+        const gorjal = new T.Mesh(new T.TorusGeometry(.19, .045, 7, 16), steel);
+        gorjal.rotation.x = Math.PI / 2; gorjal.position.set(0, 1.49, 0); gorjal.castShadow = true; torso.add(gorjal);
+      }
       const shoulderGeo = new T.SphereGeometry(1, 14, 10);
       for (const side of [-1, 1]) { mesh(shoulderGeo, steel, torso, [side * .39, 1.38, 0], [.23, .2, .24]); for (let i = 0; i < 2; i++) link(torso, [side * (.48 + i * .04), 1.4, 0], [side * (.67 + i * .08), 1.28 - i * .05, -.02], .055, steel); }
       // Cabeça, elmo e viseira na frente (-Z), visíveis sobre a capa escura.
-      const head = rootScene(torso, [0, 1.58, 0]); head.name = 'cabeca'; orb(head, 0, 0, 0, .2, .23, .18, skin);
-      if (classe === 'Mago') { mesh(new T.ConeGeometry(.32, .7, 9), mat.cloth, head, [0, .3, .02]); orb(head, 0, -.1, -.06, .25, .1, .2, mat.cloth); }
-      else { mesh(new T.SphereGeometry(.24, 14, 10, 0, Math.PI * 2, 0, Math.PI * .58), steel, head, [0, .05, 0], [1, 1, .95]); box(head, 0, -.06, -.17, .24, .045, .045, mat.eye); box(head, 0, -.15, -.11, .25, .13, .13, steel); }
+      const head = rootScene(torso, [0, 1.58, 0]); head.name = 'cabeca';
+      if (classe === 'Guerreiro') criarElmoGuerreiro(head, steel);
+      else {
+        orb(head, 0, 0, 0, .2, .23, .18, skin);
+        if (classe === 'Mago') { mesh(new T.ConeGeometry(.32, .7, 9), mat.cloth, head, [0, .3, .02]); orb(head, 0, -.1, -.06, .25, .1, .2, mat.cloth); }
+        else { mesh(new T.SphereGeometry(.24, 14, 10, 0, Math.PI * 2, 0, Math.PI * .58), steel, head, [0, .05, 0], [1, 1, .95]); box(head, 0, -.06, -.17, .24, .045, .045, mat.eye); box(head, 0, -.15, -.11, .25, .13, .13, steel); }
+      }
       if (classe === 'Arqueiro' || classe === 'Assassino') { const hood = mesh(new T.SphereGeometry(.27, 14, 10, 0, Math.PI * 2, 0, Math.PI * .72), mat.cloth, head, [0, .05, .02], [1.12, 1.18, 1]); hood.material = mat.cloth; }
-      // Cape is a tapered cloth mesh parented at the back, with visible folds.
-      const cape = rootScene(torso, [0, 1.45, .14]); cape.name = 'capa'; const capeShape = new T.Shape(); capeShape.moveTo(-.25, 0); capeShape.lineTo(.25, 0); capeShape.lineTo(.48, -1.25); capeShape.lineTo(.22, -1.18); capeShape.lineTo(0, -1.35); capeShape.lineTo(-.18, -1.18); capeShape.lineTo(-.48, -1.25); capeShape.closePath();
-      const capeMesh = new T.Mesh(new T.ShapeGeometry(capeShape), new T.MeshStandardMaterial({ color: classe === 'Paladino' ? 0x452326 : 0x211d25, roughness: 1, side: T.DoubleSide })); capeMesh.position.z = .04; cape.add(capeMesh); capeMesh.castShadow = true;
-      for (const side of [-1, 1]) { const leg = rootScene(root, [side * .16, .65, 0]); leg.name = side > 0 ? 'pernaDireita' : 'pernaEsquerda'; cyl(leg, 0, -.28, 0, .14, .48, .15, steel); cyl(leg, 0, -.59, -.08, .17, .22, .28, mat.leather); leg.userData.swingSide = side; root.userData['perna' + side] = leg; }
+      // O tecido do Guerreiro é uma malha articulada; as outras classes mantêm a capa simples.
+      let cape;
+      if (classe === 'Guerreiro') cape = criarCapaArticulada(torso, classe);
+      else {
+        cape = rootScene(torso, [0, 1.45, .14]); cape.name = 'capa';
+        const capeShape = new T.Shape(); capeShape.moveTo(-.25, 0); capeShape.lineTo(.25, 0); capeShape.lineTo(.48, -1.25); capeShape.lineTo(.22, -1.18); capeShape.lineTo(0, -1.35); capeShape.lineTo(-.18, -1.18); capeShape.lineTo(-.48, -1.25); capeShape.closePath();
+        const capeMesh = new T.Mesh(new T.ShapeGeometry(capeShape), new T.MeshStandardMaterial({ color: classe === 'Paladino' ? 0x452326 : 0x211d25, roughness: .88, metalness: .08, side: T.DoubleSide }));
+        capeMesh.position.z = .04; cape.add(capeMesh); capeMesh.castShadow = true;
+      }
+      for (const side of [-1, 1]) {
+        const leg = rootScene(root, [side * .16, .65, 0]);
+        leg.name = side > 0 ? 'pernaDireita' : 'pernaEsquerda';
+        cyl(leg, 0, -.28, 0, .14, .48, .15, steel);
+        cyl(leg, 0, -.59, -.08, .17, .22, .28, mat.leather);
+        if (classe === 'Guerreiro') {
+          orb(leg, 0, -.25, -.09, .17, .13, .17, steel);
+          const greva = box(leg, 0, -.39, -.105, .21, .3, .075, steel, 0, false); greva.castShadow = true;
+          const biqueira = box(leg, 0, -.6, -.225, .23, .09, .1, steel, 0, false); biqueira.castShadow = true;
+        }
+        leg.userData.swingSide = side; root.userData['perna' + side] = leg;
+      }
       const arms = [];
-      for (const side of [-1, 1]) { const arm = rootScene(root, [side * .42, 1.32, 0]); arm.name = side > 0 ? 'bracoDireito' : 'bracoEsquerdo'; cyl(arm, 0, -.26, 0, .12, .43, .13, steel, side * .16); orb(arm, 0, -.49, -.04, .12, .13, .13, mat.leather); arms.push(arm); }
-      // O grupo compensado leva a geometria da arma ao espaço do herói, mas mantém
-      // a hierarquia do braço direito para que o ataque gire no ombro.
-      const weapon = criarArma(arms[1], classe, steel); weapon.position.set(.2, -1.32, -.05);
+      for (const side of [-1, 1]) {
+        // O pivô do braço é o ombro; a mão fica 0,49 unidade abaixo e ligeiramente à frente.
+        const arm = rootScene(root, [side * .42, 1.32, 0]);
+        arm.name = side > 0 ? 'bracoDireito' : 'bracoEsquerdo';
+        cyl(arm, 0, -.26, 0, .12, .43, .13, steel, side * .16);
+        if (classe === 'Guerreiro') {
+          // Pauldrons articulados no próprio ombro e braçadeiras sobre os antebraços.
+          const larguraOmbreira = side < 0 ? .31 : .275;
+          orb(arm, 0, -.015, 0, larguraOmbreira, .22, .29, steel);
+          const placaOmbro = box(arm, 0, -.115, -.025, larguraOmbreira * 1.72, .11, .31, steel, side * .08, false);
+          placaOmbro.castShadow = true;
+          const manopla = cyl(arm, 0, -.34, -.025, .155, .22, .17, steel, side * .08);
+          manopla.castShadow = true;
+        }
+        const mao = rootScene(arm, [0, -.49, -.04]);
+        mao.name = side > 0 ? 'grupoMaoDireita' : 'grupoMaoEsquerda';
+        orb(mao, 0, 0, 0, .12, .13, .13, mat.leather);
+        arm.userData.mao = mao;
+        arms.push(arm);
+      }
+      // O ponto de origem do cabo coincide com o centro da palma direita.
+      const maoDireita = arms[1].userData.mao;
+      const weapon = criarArma(maoDireita, classe, steel);
+      // Sem offset legado: o grupo nasce no centro da palma e gira ao redor do cabo.
+      weapon.position.set(0, 0, 0);
+      // As demais armas também nascem na palma; só precisam da leve inclinação própria.
+      if (classe !== 'Guerreiro') weapon.rotation.x = -.16;
       // Escudo, foco secundário ou adaga na mão esquerda, direcionados à câmera/jogador.
       if (classe === 'Guerreiro' || classe === 'Paladino') { const shield = rootScene(arms[0], [-.05, -.35, -.18]); orb(shield, 0, -.06, -.02, .24, .37, .1, steel); link(shield, [0, -.42, -.1], [0, .34, -.1], .024, mat.gold); }
       else if (classe === 'Assassino') link(arms[0], [0, -.45, -.1], [-.06, -.96, -.2], .045, mat.iron);
       const shadow = new T.Mesh(new T.CircleGeometry(.46, 28), new T.MeshBasicMaterial({ color: 0x07080b, transparent: true, opacity: .38, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = .02; root.add(shadow);
       const footRing = marker(root, .58, 0xb59661);
-      root.userData.parts = { torso, head, cape, arms, weapon, footRing, shadow, legs: [root.userData['perna-1'], root.userData.perna1] };
+      root.userData.parts = { torso, head, cape, arms, maoDireita, weapon, footRing, shadow, legs: [root.userData['perna-1'], root.userData.perna1] };
       return root;
     }
     function criarModeloInimigo(tipo) {
@@ -788,7 +1147,7 @@
     const inimigosAnimacao = new Map();
     const danosPendentes = new Map();
     let alvoMiraId = null;
-    const animHeroi = { tempo: 0, fasePasso: 0, ataque: 1, duracaoAtaque: .48, correndo: false, movimento: 0 };
+    const animHeroi = { tempo: 0, fasePasso: 0, ataque: 1, duracaoAtaque: .48, correndo: false, movimento: 0, idle: 0 };
     const slash = mesh(new T.TorusGeometry(.82, .035, 6, 28, Math.PI * .88), new T.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0, depthWrite: false, side: T.DoubleSide }), hero, [.43, 1.08, -.82]);
     slash.rotation.set(.15, -.22, -.4); slash.visible = false; slash.renderOrder = 3;
     function moverCamera(dx, dy, zoom = 0) { controls.yaw += dx * .005; controls.pitch = Math.max(.12, Math.min(.9, controls.pitch - dy * .004)); controls.distance = Math.max(4.5, Math.min(14, controls.distance + zoom)); }
@@ -803,6 +1162,20 @@
       return { dx: dx * c + dz * s, dz: -dx * s + dz * c };
     }
     function definirAlvoMira(id) { alvoMiraId = id ?? null; }
+    function definirSalaDoRei(ativa, x = 0, z = ativa ? -82 : -38.5, bossEstado = null) {
+      salaDoReiAtiva = Boolean(ativa);
+      if (bossEstado) scenery.boss.vida = bossEstado.vida;
+      hero.position.set(x, 0, z); // Move o modelo no mesmo instante em que o estado lógico muda.
+      scenery.portalEntrada.grupo.visible = !salaDoReiAtiva;
+      scenery.portalRetorno.grupo.visible = salaDoReiAtiva;
+      scenery.salaRei.visible = salaDoReiAtiva;
+      scenery.boss.raizBoss.visible = salaDoReiAtiva && scenery.boss.vida > 0;
+      controls.target.set(x, 1.15, z);
+      const horizontal = controls.distance * Math.cos(controls.pitch);
+      camera.position.set(x + Math.sin(controls.yaw) * horizontal, 1.15 + controls.distance * Math.sin(controls.pitch), z + Math.cos(controls.yaw) * horizontal);
+      camera.lookAt(controls.target);
+      sincronizarColisoresCenario();
+    }
     function pontuarAlinhamentoMira(x, y, z) {
       camera.updateMatrixWorld(true);
       const ponto = v(x, y, z).project(camera);
@@ -810,7 +1183,9 @@
       return Math.hypot(ponto.x, ponto.y * 1.1);
     }
     function atualizarMiraTravada(dt, estado) {
-      const inimigo = estado.inimigos.find((item) => item.id === alvoMiraId && item.vida > 0);
+      const inimigo = alvoMiraId === 'boss' && estado.salaDoRei && estado.boss?.vida > 0
+        ? { ...estado.boss, id: 'boss', tipo: 'boss', nome: 'Rei Caído' }
+        : estado.inimigos.find((item) => item.id === alvoMiraId && item.vida > 0);
       if (!inimigo) { alvoMiraId = null; return null; }
       const dx = inimigo.x - estado.x, dz = inimigo.z - estado.z, distancia = Math.hypot(dx, dz);
       if (distancia > 22) { alvoMiraId = null; return null; }
@@ -849,12 +1224,16 @@
       const movimentoDesejado = estadoHeroi.movendo && !esquivando ? (estadoHeroi.correndo ? 1 : .58) : 0;
       animHeroi.movimento = aproximar(animHeroi.movimento, atacando || esquivando ? 0 : movimentoDesejado, dt, 11);
       animHeroi.correndo = estadoHeroi.correndo && !esquivando;
+      const idleDesejado = !estadoHeroi.movendo && !estadoHeroi.correndo && !atacando && !esquivando ? 1 : 0;
+      animHeroi.idle = aproximar(animHeroi.idle, idleDesejado, dt, 3.8);
       const velocidadePasso = animHeroi.correndo ? 11.2 : 7.2;
       animHeroi.fasePasso += dt * velocidadePasso;
       const ciclo = Math.sin(animHeroi.fasePasso);
       const caminhada = animHeroi.movimento;
       const passo = ciclo * caminhada;
       const respiracao = Math.sin(animHeroi.tempo * 1.7);
+      const respiracaoIdle = Math.sin(animHeroi.tempo * 1.23 + .35);
+      const oscilacaoGuarda = Math.sin(animHeroi.tempo * .72 + .8);
       const balancoArma = Math.sin(animHeroi.tempo * 1.25) * .035;
       const pesoCorrida = animHeroi.correndo ? caminhada : 0;
       const fase = animHeroi.ataque / animHeroi.duracaoAtaque;
@@ -867,23 +1246,47 @@
       }
       parts.legs[0].rotation.x = aproximar(parts.legs[0].rotation.x, esquivando ? -.8 * impulsoEsquiva : passo * .68, dt);
       parts.legs[1].rotation.x = aproximar(parts.legs[1].rotation.x, esquivando ? .65 * impulsoEsquiva : -passo * .68, dt);
-      parts.arms[0].rotation.x = aproximar(parts.arms[0].rotation.x, esquivando ? -.9 * impulsoEsquiva : -passo * .34 + golpeBracoX * .12, dt);
-      parts.arms[1].rotation.x = aproximar(parts.arms[1].rotation.x, esquivando ? -.72 * impulsoEsquiva : passo * .32 + balancoArma + golpeBracoX, dt, 18);
-      parts.arms[0].rotation.z = aproximar(parts.arms[0].rotation.z, esquivando ? -.22 * impulsoEsquiva : 0, dt);
-      parts.arms[1].rotation.z = aproximar(parts.arms[1].rotation.z, esquivando ? .22 * impulsoEsquiva : golpeBracoZ, dt, 18);
-      parts.weapon.rotation.z = aproximar(parts.weapon.rotation.z, golpeArmaZ + balancoArma, dt, 20);
-      parts.torso.rotation.x = aproximar(parts.torso.rotation.x, -.025 - pesoCorrida * .09 + (atacando ? -.06 * Math.sin(Math.PI * fase) : 0) - .42 * impulsoEsquiva, dt, esquivando ? 18 : 9);
+      // A guarda baixa usa o pivô do ombro; a arma acompanha a mão sem offset independente.
+      const guardaDireita = animHeroi.idle * (.105 + respiracaoIdle * .022);
+      const guardaEsquerda = animHeroi.idle * (-.045 + respiracaoIdle * .016);
+      parts.arms[0].position.y = 1.32 + animHeroi.idle * respiracaoIdle * .009;
+      parts.arms[1].position.y = 1.32 + animHeroi.idle * respiracaoIdle * .009;
+      parts.arms[0].rotation.x = aproximar(parts.arms[0].rotation.x, esquivando ? -.9 * impulsoEsquiva : -passo * .34 + golpeBracoX * .12 + guardaEsquerda, dt);
+      parts.arms[1].rotation.x = aproximar(parts.arms[1].rotation.x, esquivando ? -.72 * impulsoEsquiva : passo * .32 + balancoArma + golpeBracoX + guardaDireita, dt, 18);
+      parts.arms[0].rotation.z = aproximar(parts.arms[0].rotation.z, esquivando ? -.22 * impulsoEsquiva : animHeroi.idle * oscilacaoGuarda * .018, dt);
+      parts.arms[1].rotation.z = aproximar(parts.arms[1].rotation.z, esquivando ? .22 * impulsoEsquiva : golpeBracoZ + animHeroi.idle * oscilacaoGuarda * .014, dt, 18);
+      parts.weapon.rotation.z = aproximar(parts.weapon.rotation.z, golpeArmaZ + balancoArma + animHeroi.idle * respiracaoIdle * .018, dt, 20);
+      parts.torso.rotation.x = aproximar(parts.torso.rotation.x, -.025 - pesoCorrida * .09 + (atacando ? -.06 * Math.sin(Math.PI * fase) : 0) - .42 * impulsoEsquiva + animHeroi.idle * respiracaoIdle * .012, dt, esquivando ? 18 : 9);
       parts.torso.rotation.y = aproximar(parts.torso.rotation.y, giroTronco, dt, 16);
-      parts.torso.rotation.z = aproximar(parts.torso.rotation.z, esquivando ? ladoEsquiva * .2 * impulsoEsquiva : 0, dt, esquivando ? 18 : 8);
-      parts.torso.position.y = esquivando ? -.08 * impulsoEsquiva : 0;
-      parts.torso.scale.y = 1 + respiracao * .008;
+      parts.torso.rotation.z = aproximar(parts.torso.rotation.z, esquivando ? ladoEsquiva * .2 * impulsoEsquiva : animHeroi.idle * oscilacaoGuarda * .012, dt, esquivando ? 18 : 8);
+      parts.torso.position.y = esquivando ? -.08 * impulsoEsquiva : animHeroi.idle * respiracaoIdle * .014;
+      parts.torso.scale.y = 1 + respiracao * .006 + animHeroi.idle * respiracaoIdle * .009;
       parts.head.rotation.x = aproximar(parts.head.rotation.x, -.018 + respiracao * .012, dt, 7);
-      parts.cape.rotation.x = aproximar(parts.cape.rotation.x, -.045 + Math.abs(passo) * .16 + Math.sin(animHeroi.tempo * 2.3) * .035 + balancoVentoHeroi * .018, dt, 5);
-      parts.cape.rotation.z = aproximar(parts.cape.rotation.z, Math.sin(animHeroi.fasePasso) * caminhada * .12 + Math.sin(animHeroi.tempo * 1.4) * .025 + balancoVentoHeroi * .022, dt, 5);
+      parts.head.rotation.y = aproximar(parts.head.rotation.y, animHeroi.idle * Math.sin(animHeroi.tempo * .38) * .035, dt, 4.2);
+      parts.head.rotation.z = aproximar(parts.head.rotation.z, animHeroi.idle * oscilacaoGuarda * .012, dt, 4.2);
+      if (!parts.cape.userData.articulada) {
+        parts.cape.rotation.x = aproximar(parts.cape.rotation.x, -.045 + Math.abs(passo) * .16 + Math.sin(animHeroi.tempo * 2.3) * .035 + balancoVentoHeroi * .018 + animHeroi.idle * respiracaoIdle * .012, dt, 5);
+        parts.cape.rotation.z = aproximar(parts.cape.rotation.z, Math.sin(animHeroi.fasePasso) * caminhada * .12 + Math.sin(animHeroi.tempo * 1.4) * .025 + balancoVentoHeroi * .022 + animHeroi.idle * oscilacaoGuarda * .012, dt, 5);
+      }
       hero.position.y = estadoHeroi.salto + Math.abs(ciclo) * caminhada * (animHeroi.correndo ? .055 : .025) - .1 * impulsoEsquiva;
       hero.position.x = estadoHeroi.x; hero.position.z = estadoHeroi.z;
       const deltaYawHeroi = Math.atan2(Math.sin(estadoHeroi.angulo - hero.rotation.y), Math.cos(estadoHeroi.angulo - hero.rotation.y));
       hero.rotation.y += deltaYawHeroi * (1 - Math.exp(-14 * dt));
+      if (parts.cape.userData.articulada) {
+        const frenteX = -Math.sin(hero.rotation.y), frenteZ = -Math.cos(hero.rotation.y);
+        const ladoX = Math.cos(hero.rotation.y), ladoZ = -Math.sin(hero.rotation.y);
+        const vx = estadoHeroi.velocidadeX || 0, vz = estadoHeroi.velocidadeZ || 0;
+        const velocidadeLocal = { frente: vx * frenteX + vz * frenteZ, lado: vx * ladoX + vz * ladoZ };
+        const giro = dt > .0001 ? deltaYawHeroi / dt : 0;
+        atualizarCapaGuerreiro(dt, parts.cape, velocidadeLocal, estadoHeroi.esquiva, giro, animHeroi.tempo);
+        const intensidadeMovimento = Math.min(1, Math.hypot(velocidadeLocal.frente, velocidadeLocal.lado) / 8);
+        parts.cape.rotation.x = aproximar(parts.cape.rotation.x,
+          -.035 - intensidadeMovimento * .09 - impulsoEsquiva * .13 + balancoVentoHeroi * .018, dt, 4.5);
+        parts.cape.rotation.y = aproximar(parts.cape.rotation.y,
+          -velocidadeLocal.lado * .012 + giro * .018, dt, 3.2);
+        parts.cape.rotation.z = aproximar(parts.cape.rotation.z,
+          -velocidadeLocal.lado * .018 + Math.sin(animHeroi.tempo * 1.4) * .018 + balancoVentoHeroi * .018, dt, 3.8);
+      }
       if (avancar) hero.translateZ(-avancar);
       slash.visible = atacando && fase > .24 && fase < .67;
       slash.material.opacity = slash.visible ? Math.sin(Math.PI * suave((fase - .24) / .43)) * .68 : 0;
@@ -926,22 +1329,50 @@
       if (anim.flash > 0) for (const eye of parts.eyes) eye.material.emissiveIntensity = 4.5;
       group.userData.health.bar.quaternion.copy(camera.quaternion);
     }
+    // Só a apresentação fica aqui; fases, cronômetros, alcance e dano vêm das regras puras.
+    function atualizarBoss(dt, tempoTotal, estadoHeroi) {
+      const boss = scenery.boss, estado = estadoHeroi.boss;
+      boss.vida = estado?.vida ?? boss.vida;
+      boss.raizBoss.visible = Boolean(estadoHeroi.salaDoRei && boss.vida > 0);
+      boss.miraBoss.visible = Boolean(boss.raizBoss.visible && alvoMiraId === 'boss');
+      boss.miraBoss.quaternion.copy(camera.quaternion);
+      boss.aroBoss.rotation.z += dt * 1.5;
+      if (!estado) return;
+      boss.raizBoss.position.set(estado.x, 0, estado.z);
+      boss.raizBoss.rotation.y = Math.atan2(-(estadoHeroi.x - estado.x), -(estadoHeroi.z - estado.z));
+      const fase = estado.tempoEstado || 0;
+      const preparando = estado.estado === 'preparacao', golpe = estado.estado === 'ataque', recuperando = estado.estado === 'recuperacao';
+      boss.corpo.rotation.x = preparando ? -.27 - Math.sin(fase * 3) * .035 : golpe ? .48 : recuperando ? .24 : 0;
+      boss.corpo.rotation.z = golpe ? Math.sin(fase * 18) * .06 : 0;
+      boss.arma.rotation.x = preparando ? 1.0 + Math.sin(fase * 4) * .035 : golpe ? -.9 + fase * 1.4 : recuperando ? .35 : 0;
+      boss.capa.rotation.x = -.12 + Math.sin(tempoTotal * 1.25 + boss.raizBoss.position.z) * .045 + (golpe ? .2 : 0);
+      boss.vidaGrupo.quaternion.copy(camera.quaternion);
+      const vida = estado.vidaMax ? Math.max(0, estado.vida / estado.vidaMax) : 0;
+      boss.preenchimento.scale.x = Math.max(.001, vida);
+      boss.preenchimento.position.x = -(1 - vida) * 1.31;
+    }
+
     function desenhar(estado, quadro = {}) {
-      const { deltaSegundos = 0, correndo = false, movendo = false, velocidade = 0, salto = 0, anguloHeroi = 0 } = quadro;
+      const { deltaSegundos = 0, correndo = false, movendo = false, velocidade = 0, velocidadeX = 0, velocidadeZ = 0, salto = 0, anguloHeroi = 0 } = quadro;
       const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
       if (estado.classe !== heroClass) { scene.remove(hero); hero = criarModeloHeroi(estado.classe); scene.remove(slash); hero.add(slash); heroClass = estado.classe; }
       const dt = Math.min(.1, Math.max(0, deltaSegundos)); const inimigoMira = atualizarMiraTravada(dt, estado);
       let alvoCamera = v(estado.x, 1.13 + salto, estado.z);
       let anguloPersonagem = anguloHeroi;
       if (inimigoMira) {
-        alvoCamera = v((estado.x + inimigoMira.x) * .5, inimigoMira.tipo === 'lobo' ? .98 : 1.18, (estado.z + inimigoMira.z) * .5);
+        const alturaAlvo = inimigoMira.tipo === 'boss' ? 2.55 : inimigoMira.tipo === 'lobo' ? .98 : 1.18;
+        alvoCamera = v((estado.x + inimigoMira.x) * .5, alturaAlvo, (estado.z + inimigoMira.z) * .5);
         anguloPersonagem = Math.atan2(-(inimigoMira.x - estado.x), -(inimigoMira.z - estado.z));
       }
       controls.target.lerp(alvoCamera, 1 - Math.exp(-9 * dt));
+      // Acompanha o alvo já interpolado neste quadro, inclusive imediatamente após teleporte.
+      vento.grupo.position.set(controls.target.x, 0, controls.target.z);
       const horizontal = controls.distance * Math.cos(controls.pitch); camera.position.set(controls.target.x + Math.sin(controls.yaw) * horizontal, controls.target.y + controls.distance * Math.sin(controls.pitch), controls.target.z + Math.cos(controls.yaw) * horizontal); camera.lookAt(controls.target);
       ajustarCameraContraCenario(); camera.lookAt(controls.target);
-      atualizarAnimacaoHeroi(dt, { x: estado.x, z: estado.z, angulo: anguloPersonagem, salto, movendo: movendo && velocidade > .15, correndo, esquiva: quadro.esquiva });
-      for (const e of estado.inimigos) {
+      atualizarAnimacaoHeroi(dt, { x: estado.x, z: estado.z, angulo: anguloPersonagem, salto, movendo: movendo && velocidade > .15, correndo,
+        velocidade, velocidadeX, velocidadeZ, esquiva: quadro.esquiva });
+      const listaInimigos = [...estado.inimigos, ...(estado.inimigosReserva || [])];
+      for (const e of listaInimigos) {
         const distancia = Math.hypot(e.x - estado.x, e.z - estado.z); const angulo = Math.atan2(estado.x - e.x, -(estado.z - e.z));
         atualizarAnimacaoInimigo(dt, e, distancia, angulo);
         if (e.vida <= 0) continue;
@@ -950,7 +1381,8 @@
         health.lockMarker.visible = e.id === alvoMiraId;
         if (health.lockMarker.visible) { health.lockMarker.quaternion.copy(camera.quaternion); health.lockMarker.rotation.z += dt * 1.7; }
       }
-      const tempo = inimigosAnimacao.get(estado.inimigos[0]?.id)?.tempo || 0;
+      atualizarBoss(dt, estado.tempo || 0, estado);
+      const tempo = inimigosAnimacao.get(listaInimigos[0]?.id)?.tempo || 0;
       for (let i = 0; i < 24; i++) { const t = (tempo * .35 + i * .173) % 1; scenery.sparkPositions[i * 3] = Math.sin(i * 12.3 + tempo * .35) * .36; scenery.sparkPositions[i * 3 + 1] = .32 + t * 1.9; scenery.sparkPositions[i * 3 + 2] = Math.cos(i * 8.8 + tempo * .35) * .34; }
       scenery.sparks.attributes.position.needsUpdate = true;
       const chestNear = !estado.bausAberto && Math.hypot(estado.x - 18, estado.z - 18) < 4.5;
@@ -959,7 +1391,8 @@
     }
     return { desenhar, atualizarVentoAmbiente, moverCamera, moverCameraComAnalogo, orientarMovimento, orientarMovimentoComMira, definirAlvoMira, pontuarAlinhamentoMira,
       dispararAnimacaoAtaqueHeroi, dispararDanoInimigo,
-      resolverColisaoHorizontal, moverComColisao, get colisoresCenario() { return colisoresCenario.slice(); } };
+      resolverColisaoHorizontal, moverComColisao, moverBossComColisao, definirSalaDoRei,
+      get colisoresCenario() { return colisoresCenario.slice(); } };
   }
   raiz.Mundo3D = { iniciar, criarTexturasProcedurais };
 })(window);

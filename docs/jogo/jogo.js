@@ -27,6 +27,9 @@
   const esquiva = { ativa: false, decorrido: 0, cooldown: 0, dirX: 0, dirZ: -1 };
   const CONFIG_ESQUIVA = Object.freeze({ duracao: .4, velocidadeInicial: 18, janelaInvencibilidadeInicio: .15, janelaInvencibilidadeFim: .75, cooldown: .68 });
   let interacaoSolicitada = false;
+  let cooldownPortal = 0;
+  const COOLDOWN_PORTAL = 1.5;
+  const RAIO_CONTATO_PORTAL = 2.8;
   let alvoMiraId = null;
   let controlMiraPressionado = false;
   const controlesMiraAbaixo = new Set();
@@ -323,7 +326,17 @@
       const classe = classes.includes($('classe-heroi').value) ? $('classe-heroi').value : 'Guerreiro';
       estadoAventura = Regras.rpgNovaAventura(nome, classe);
     } else if (!estadoAventura || estadoAventura.acabou) return;
+    cooldownPortal = 0;
+    // Migra saves antigos cujo ponto de entrada ficava dentro do raio de retorno.
+    if (estadoAventura.salaDoRei && Math.hypot(estadoAventura.x, estadoAventura.z + 78) <= RAIO_CONTATO_PORTAL)
+      estadoAventura = { ...estadoAventura, x: 0, z: -82 };
+    // Os reforços ficam fora da lista inicial para preservar os saves e a API de regras antiga.
+    if (Array.isArray(estadoAventura.inimigosReserva) && estadoAventura.inimigosReserva.length) {
+      estadoAventura.inimigos = [...estadoAventura.inimigos, ...estadoAventura.inimigosReserva];
+      estadoAventura.inimigosReserva = [];
+    }
     if (!montarRenderizador()) { mostrar('tela-aventura'); return; }
+    renderizador.definirSalaDoRei(Boolean(estadoAventura.salaDoRei), estadoAventura.x, estadoAventura.z, estadoAventura.boss);
     alvoMiraId = null;
     controlMiraPressionado = false;
     controlesMiraAbaixo.clear();
@@ -338,6 +351,17 @@
     salvarAventura();
     cancelAnimationFrame(frameMundo);
     frameMundo = requestAnimationFrame(passoMundo);
+  }
+  // Sincroniza de uma vez estado lógico, spawn, cena, colisores e câmera após o teleporte.
+  function teletransportarParaSalaDoRei(entrar) {
+    const ativa = Boolean(entrar);
+    // O spawn interno fica fora do raio do portal de retorno, evitando pingue-pongue.
+    estadoAventura = { ...estadoAventura, salaDoRei: ativa, x: 0, z: ativa ? -82 : -38.5 };
+    renderizador.definirAlvoMira(null); alvoMiraId = null;
+    renderizador.definirSalaDoRei(ativa, estadoAventura.x, estadoAventura.z, estadoAventura.boss);
+    esquiva.ativa = false; esquiva.decorrido = 0; saltoDecorrido = 0;
+    cooldownPortal = COOLDOWN_PORTAL;
+    atualizaHud();
   }
   function atualizaHud() {
     const e = estadoAventura;
@@ -354,7 +378,8 @@
     $('hud-abates').textContent = e.inimigosDerrotados;
     $('hud-missao').textContent = e.inimigosDerrotados >= 3
       ? 'Missão concluída: vila protegida!' : `Missão: derrote as criaturas (${e.inimigosDerrotados}/3)`;
-    const perto = e.inimigos.filter((inimigo) => inimigo.vida > 0)
+    const todos = [...e.inimigos, ...(e.inimigosReserva || [])];
+    const perto = todos.filter((inimigo) => inimigo.vida > 0)
       .map((inimigo) => ({ inimigo, distancia: Math.hypot(inimigo.x - e.x, inimigo.z - e.z) }))
       .sort((a, b) => a.distancia - b.distancia)[0];
     const mostrarInimigo = perto && perto.distancia < 8;
@@ -368,15 +393,36 @@
       $('hud-inimigo-vida').value = Math.max(0, inimigo.vida);
       $('hud-inimigo-vida-texto').textContent = `${Math.ceil(inimigo.vida)}/${inimigo.maxVida} HP`;
     }
+    const barraBoss = $('hud-boss');
+    const boss = e.boss;
+    barraBoss.hidden = !e.salaDoRei || !boss || boss.vida <= 0;
+    if (!barraBoss.hidden) {
+      $('hud-boss-nome').textContent = boss.estado === 'preparacao' ? 'Rei Caído · preparando golpe' : boss.estado === 'recuperacao' ? 'Rei Caído · vulnerável' : 'Rei Caído';
+      $('hud-boss-vida').max = boss.vidaMax; $('hud-boss-vida').value = boss.vida;
+      $('hud-boss-vida-texto').textContent = `${Math.ceil(boss.vida)}/${boss.vidaMax}`;
+    }
+    const pertoPortal = Regras.rpgPortalPerto(e);
+    const promptPortal = $('hud-portal');
+    promptPortal.hidden = !pertoPortal;
+    if (pertoPortal) promptPortal.textContent = e.salaDoRei
+      ? 'E / Triângulo ou toque no centro · voltar ao vale'
+      : 'E / Triângulo ou toque no centro · entrar na Sala do Rei';
+    $('botao-interagir').textContent = pertoPortal ? (e.salaDoRei ? 'Voltar' : 'Entrar') : 'Interagir';
   }
   function atualizarHudMira() {
     const painel = $('hud-mira');
-    const alvo = estadoAventura?.inimigos.find((inimigo) => inimigo.id === alvoMiraId && inimigo.vida > 0);
+    const alvo = obterAlvoMira();
     painel.hidden = !alvo;
     if (alvo) $('hud-mira-alvo').textContent = alvo.nome;
   }
+  function obterAlvoMira() {
+    if (!estadoAventura) return null;
+    if (alvoMiraId === 'boss' && estadoAventura.salaDoRei && estadoAventura.boss?.vida > 0)
+      return { ...estadoAventura.boss, id: 'boss', nome: 'Rei Caído', tipo: 'boss' };
+    return estadoAventura.inimigos.find((inimigo) => inimigo.id === alvoMiraId && inimigo.vida > 0) || null;
+  }
   function sincronizarAlvoMira() {
-    const alvo = estadoAventura?.inimigos.find((inimigo) => inimigo.id === alvoMiraId && inimigo.vida > 0);
+    const alvo = obterAlvoMira();
     if (!alvo || Math.hypot(alvo.x - estadoAventura.x, alvo.z - estadoAventura.z) > ALCANCE_MIRA) alvoMiraId = null;
     renderizador?.definirAlvoMira(alvoMiraId);
     atualizarHudMira();
@@ -392,6 +438,16 @@
       if (!Number.isFinite(alinhamento)) continue;
       const pontuacao = alinhamento + distancia * .006;
       if (pontuacao < melhorPontuacao) { melhor = inimigo; melhorPontuacao = pontuacao; }
+    }
+    if (estadoAventura.salaDoRei && estadoAventura.boss?.vida > 0) {
+      const boss = estadoAventura.boss;
+      const distancia = Math.hypot(boss.x - estadoAventura.x, boss.z - estadoAventura.z);
+      if (distancia <= ALCANCE_MIRA) {
+        const alinhamento = renderizador.pontuarAlinhamentoMira(boss.x, 2.7, boss.z);
+        const pontuacao = alinhamento + distancia * .006;
+        if (Number.isFinite(alinhamento) && pontuacao < melhorPontuacao)
+          { melhor = { ...boss, id: 'boss', nome: 'Rei Caído', tipo: 'boss' }; melhorPontuacao = pontuacao; }
+      }
     }
     return melhor;
   }
@@ -411,6 +467,7 @@
     if (!estadoAventura || $('tela-aventura').hidden) return;
     const dtMs = Math.min(100, Math.max(0, agora - tempoAnterior));
     const dt = dtMs / 1000;
+    cooldownPortal = Math.max(0, cooldownPortal - dt);
     tempoAnterior = agora;
     tempoAmbiente += dt;
     renderizador.atualizarVentoAmbiente(dt, tempoAmbiente);
@@ -422,7 +479,7 @@
     const dxLocal = joystick.dx + entradaGamepad.dx + (direita ? 1 : 0) - (esquerda ? 1 : 0);
     const dzLocal = joystick.dz + entradaGamepad.dz + (tras ? 1 : 0) - (frente ? 1 : 0);
     sincronizarAlvoMira();
-    const alvoTravado = estadoAventura.inimigos.find((inimigo) => inimigo.id === alvoMiraId && inimigo.vida > 0);
+    const alvoTravado = obterAlvoMira();
     const movimentoOrientado = alvoTravado
       ? renderizador.orientarMovimentoComMira(dxLocal, dzLocal, estadoAventura.x, estadoAventura.z, alvoTravado.x, alvoTravado.z)
       : renderizador.orientarMovimento(dxLocal, dzLocal);
@@ -439,11 +496,14 @@
     const iFramesEsquiva = estaInvencivelEsquivando(progressoEsquiva);
     if (esquivaAtiva) { dx = 0; dz = 0; }
     const xAntes = estadoAventura.x, zAntes = estadoAventura.z;
+    const salaAntes = Boolean(estadoAventura.salaDoRei);
     const bauAntes = estadoAventura.bausAberto;
     const abatesAntes = estadoAventura.inimigosDerrotados;
     const nivelAntes = estadoAventura.nivel;
     const derrotadosAntes = new Set(estadoAventura.inimigos.filter((inimigo) => inimigo.vida === 0).map((inimigo) => inimigo.id));
     const vidasAntes = new Map(estadoAventura.inimigos.map((inimigo) => [inimigo.id, inimigo.vida]));
+    const bossVidaAntes = estadoAventura.boss?.vida;
+    const bossPosicaoAntes = estadoAventura.boss ? { x: estadoAventura.boss.x, z: estadoAventura.boss.z } : { x: 0, z: -114 };
     const posicoesInimigosAntes = new Map(estadoAventura.inimigos.map((inimigo) => [inimigo.id, { x: inimigo.x, z: inimigo.z }]));
     const ataqueIniciado = ataqueSolicitado && estadoAventura.cooldown <= 0;
     const correndo = teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim' || gamepadCorrendo;
@@ -457,16 +517,35 @@
       ? { x: Math.max(-44, Math.min(44, xAntes + esquiva.dirX * distanciaEsquiva)), z: Math.max(-44, Math.min(44, zAntes + esquiva.dirZ * distanciaEsquiva)) }
       : { x: xAntes + dx / comprimentoEntrada * velocidade * dt, z: zAntes + dz / comprimentoEntrada * velocidade * dt };
     if (iFramesEsquiva) estadoAventura.invulneravel = Math.max(estadoAventura.invulneravel || 0, dt + .001);
+    const centroPortalZ = salaAntes ? -78 : -42.2;
+    // A borda externa do mapa deixa o herói a até 1,5 u do plano visual; esta folga
+    // ainda equivale a tocar o portal e não exige que ele atravesse a fachada.
+    const tocouCentroPortal = Math.hypot(xAntes, zAntes - centroPortalZ) <= RAIO_CONTATO_PORTAL;
+    const interagirEfetivo = interacaoSolicitada || (cooldownPortal <= 0 && tocouCentroPortal);
+    const solicitouPortalPerto = cooldownPortal <= 0 && (interacaoSolicitada || tocouCentroPortal)
+      && Regras.rpgPortalPerto(estadoAventura);
     estadoAventura = Regras.rpgAtualizar(estadoAventura, {
       dx, dz, correr: esquivaAtiva ? false : correndo,
-      atacar: ataqueSolicitado, pular: puloSolicitado, interagir: interacaoSolicitada
+      atacar: ataqueSolicitado, pular: puloSolicitado, interagir: interagirEfetivo,
+      portalBloqueado: cooldownPortal > 0
     }, dtMs, Math.random);
+    let trocouSala = salaAntes !== Boolean(estadoAventura.salaDoRei);
+    // Fallback explícito: a interação física válida não depende de uma coincidência
+    // entre a posição movida pelas regras e a posição do plano visual do portal.
+    if (!trocouSala && solicitouPortalPerto) {
+      teletransportarParaSalaDoRei(!salaAntes);
+      trocouSala = true;
+    } else if (trocouSala) teletransportarParaSalaDoRei(estadoAventura.salaDoRei);
+    if (estadoAventura.salaDoRei && estadoAventura.boss && !estadoAventura.boss.derrotado) {
+      const bossResolvido = renderizador.moverBossComColisao(bossPosicaoAntes, { x: estadoAventura.boss.x, z: estadoAventura.boss.z });
+      estadoAventura.boss.x = bossResolvido.x; estadoAventura.boss.z = bossResolvido.z;
+    }
     // Regras continua sendo a autoridade do combate; o renderer resolve o deslocamento
     // contra os colisores derivados das malhas e permite deslizar junto a obstáculos.
     const destinoRegras = { x: estadoAventura.x, z: estadoAventura.z };
     const regraImpediuMovimento = Math.hypot(destinoRegras.x - xAntes, destinoRegras.z - zAntes) < .0001
       && Math.hypot(destinoPedido.x - xAntes, destinoPedido.z - zAntes) > .0001;
-    const destinoPedidoResolvido = esquivaAtiva
+    const destinoPedidoResolvido = trocouSala ? { x: estadoAventura.x, z: estadoAventura.z } : esquivaAtiva
       ? moverEsquivaComColisao({ x: xAntes, z: zAntes }, esquiva.dirX, esquiva.dirZ, distanciaEsquiva, RAIO_COLISAO_HEROI)
       : renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoPedido, RAIO_COLISAO_HEROI);
     const pedidoNoVaoDoArco = Math.abs(destinoPedido.z - PORTAO_ARCO_Z) < MEIA_FAIXA_PORTAO_ARCO
@@ -479,7 +558,7 @@
     }
     // A esquiva já usa o mesmo resolvedor físico; as regras puras continuam cuidando do combate.
     if (esquivaAtiva) { destinoRegras.x = destinoPedidoResolvido.x; destinoRegras.z = destinoPedidoResolvido.z; }
-    const posicaoHeroiResolvida = renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoRegras, RAIO_COLISAO_HEROI);
+    const posicaoHeroiResolvida = trocouSala ? destinoRegras : renderizador.moverComColisao({ x: xAntes, z: zAntes }, destinoRegras, RAIO_COLISAO_HEROI);
     estadoAventura.x = posicaoHeroiResolvida.x; estadoAventura.z = posicaoHeroiResolvida.z;
     if (esquivaAtiva) {
       esquiva.decorrido += dt;
@@ -489,6 +568,7 @@
     }
     // A IA mantém seu movimento original, mas cada passo é varrido contra a mesma lista de colisores.
     for (const inimigo of estadoAventura.inimigos) {
+      if (estadoAventura.salaDoRei || trocouSala) continue; // Os inimigos da vila ficam no mapa exterior.
       const origem = posicoesInimigosAntes.get(inimigo.id);
       if (!origem || inimigo.vida <= 0) continue;
       const posicao = renderizador.moverComColisao(origem, { x: inimigo.x, z: inimigo.z }, RAIO_COLISAO_INIMIGO);
@@ -502,6 +582,11 @@
     ataqueSolicitado = false;
     const inimigosAtingidos = estadoAventura.inimigos.filter((inimigo) => inimigo.vida < (vidasAntes.get(inimigo.id) ?? inimigo.vida));
     if (inimigosAtingidos.length) tocarImpactoEspada();
+    if (estadoAventura.boss?.vida < (bossVidaAntes ?? estadoAventura.boss?.vida)) tocarImpactoEspada();
+    if (bossVidaAntes > 0 && estadoAventura.boss?.vida === 0) {
+      $('hud-mensagem').textContent = 'O Rei Caído foi derrotado. O salão está livre.';
+      salvarAventura();
+    }
     for (const inimigo of inimigosAtingidos) {
       const dano = (vidasAntes.get(inimigo.id) || inimigo.vida) - inimigo.vida;
       const dxImpacto = inimigo.x - estadoAventura.x, dzImpacto = inimigo.z - estadoAventura.z;
@@ -531,7 +616,8 @@
       salto: alturaSalto, deltaSegundos: dt, anguloHeroi, correndo: correndo && !esquivaAtiva,
       esquiva: { ativa: esquivaAtiva, progresso: progressoEsquiva, invencivel: iFramesEsquiva, dirX: esquiva.dirX, dirZ: esquiva.dirZ },
       movendo: Math.hypot(movimentoX, movimentoZ) > .0001,
-      velocidade: Math.hypot(movimentoX, movimentoZ) / Math.max(dt, .001)
+      velocidade: Math.hypot(movimentoX, movimentoZ) / Math.max(dt, .001),
+      velocidadeX: movimentoX / Math.max(dt, .001), velocidadeZ: movimentoZ / Math.max(dt, .001)
     });
     atualizaHud();
     salvarDecorrido += dtMs;

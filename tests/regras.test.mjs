@@ -117,3 +117,39 @@ test('baú recompensa apenas uma vez e o progresso pode ser validado antes de sa
   assert.equal(Regras.rpgDadosValidos(segunda), true);
   assert.equal(Regras.rpgDadosValidos({ ...segunda, x: 'inválido' }), false);
 });
+
+test('portal transporta entre a entrada do castelo e a Sala do Rei', () => {
+  let e = { ...Regras.rpgNovaAventura('Lina', 'Guerreiro'), x: 0, z: -42.2 };
+  assert.equal(Regras.rpgPortalPerto(e), true);
+  assert.equal(Regras.rpgPortalPerto({ ...e, z: -43.7 }), true); // posição limite do mapa antes do plano do portal.
+  e = Regras.rpgAtualizar(e, { interagir: true }, 16, () => 0);
+  assert.equal(e.salaDoRei, true);
+  assert.deepEqual([e.x, e.z], [0, -82]);
+  assert.equal(Regras.rpgPortalPerto(e), false); // spawn afastado para não ativar o retorno após o cooldown.
+  assert.equal(Regras.rpgPortalPerto({ ...e, z: -80 }), true);
+  e = Regras.rpgAtualizar({ ...e, z: -78 }, { interagir: true }, 16, () => 0);
+  assert.equal(e.salaDoRei, false);
+  assert.deepEqual([e.x, e.z], [0, -38.5]);
+  const bloqueado = Regras.rpgAtualizar({ ...e, x: 0, z: -42.2 }, { interagir: true, portalBloqueado: true }, 16);
+  assert.equal(bloqueado.salaDoRei, false);
+});
+
+test('inimigos comuns só avançam quando o herói entra no raio curto de agro', () => {
+  const inicial = Regras.rpgNovaAventura('Lina', 'Guerreiro');
+  const longe = Regras.rpgAtualizar(inicial, {}, 100, () => 0);
+  assert.equal(longe.inimigos[0].z, inicial.inimigos[0].z);
+  const perto = Regras.rpgAtualizar({ ...inicial, x: -7, z: -8 }, {}, 100, () => 0);
+  assert.ok(perto.inimigos[0].z > inicial.inimigos[0].z);
+});
+
+test('Boss telegrapha o golpe e permanece em recuperação sem atacar por 1,8 s', () => {
+  let e = { ...Regras.rpgNovaAventura('Lina', 'Guerreiro'), salaDoRei: true, x: 0, z: -110.5 };
+  const vidaAntes = e.vida;
+  for (let i = 0; i < 12; i++) e = Regras.rpgAtualizar(e, {}, 100, () => 0);
+  assert.equal(e.boss.estado, 'recuperacao');
+  assert.ok(e.vida < vidaAntes);
+  const vidaRecuperacao = e.vida;
+  for (let i = 0; i < 10; i++) e = Regras.rpgAtualizar(e, {}, 100, () => 0);
+  assert.equal(e.boss.estado, 'recuperacao');
+  assert.equal(e.vida, vidaRecuperacao);
+});
