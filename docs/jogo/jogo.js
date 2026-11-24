@@ -18,7 +18,6 @@
   let frameMundo = 0;
   let tempoAnterior = 0;
   let salvarDecorrido = 0;
-  let ataqueAnimacao = 0;
   let saltoDecorrido = 0;
   let ataqueSolicitado = false;
   let puloSolicitado = false;
@@ -141,7 +140,8 @@
   }
   function passoMundo(agora) {
     if (!estadoAventura || $('tela-aventura').hidden) return;
-    const dt = Math.min(100, Math.max(0, agora - tempoAnterior));
+    const dtMs = Math.min(100, Math.max(0, agora - tempoAnterior));
+    const dt = dtMs / 1000;
     tempoAnterior = agora;
     const esquerda = teclas.has('a') || teclas.has('arrowleft');
     const direita = teclas.has('d') || teclas.has('arrowright');
@@ -156,14 +156,24 @@
     const nivelAntes = estadoAventura.nivel;
     const derrotadosAntes = new Set(estadoAventura.inimigos.filter((inimigo) => inimigo.vida === 0).map((inimigo) => inimigo.id));
     const vidasAntes = new Map(estadoAventura.inimigos.map((inimigo) => [inimigo.id, inimigo.vida]));
+    const ataqueIniciado = ataqueSolicitado && estadoAventura.cooldown <= 0;
+    const correndo = teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim';
     estadoAventura = Regras.rpgAtualizar(estadoAventura, {
-      dx, dz, correr: teclas.has('shift') || $('botao-correr').dataset.pressionado === 'sim',
+      dx, dz, correr: correndo,
       atacar: ataqueSolicitado, pular: puloSolicitado, interagir: interacaoSolicitada
-    }, dt, Math.random);
+    }, dtMs, Math.random);
     const movimentoX = estadoAventura.x - xAntes, movimentoZ = estadoAventura.z - zAntes;
     if (Math.hypot(movimentoX,movimentoZ) > .0001) anguloHeroi = Math.atan2(-movimentoX,-movimentoZ);
+    if (ataqueIniciado) renderizador.dispararAnimacaoAtaqueHeroi();
     ataqueSolicitado = false;
-    if (estadoAventura.inimigos.some((inimigo) => inimigo.vida < (vidasAntes.get(inimigo.id) ?? inimigo.vida))) tocarImpactoEspada();
+    const inimigosAtingidos = estadoAventura.inimigos.filter((inimigo) => inimigo.vida < (vidasAntes.get(inimigo.id) ?? inimigo.vida));
+    if (inimigosAtingidos.length) tocarImpactoEspada();
+    for (const inimigo of inimigosAtingidos) {
+      const dxImpacto = inimigo.x - estadoAventura.x, dzImpacto = inimigo.z - estadoAventura.z;
+      const distancia = Math.hypot(dxImpacto, dzImpacto) || 1;
+      const dano = (vidasAntes.get(inimigo.id) || inimigo.vida) - inimigo.vida;
+      renderizador.dispararDanoInimigo(inimigo.id, dxImpacto / distancia, dzImpacto / distancia, dano);
+    }
     if (puloSolicitado && saltoDecorrido === 0) saltoDecorrido = .55;
     puloSolicitado = false;
     interacaoSolicitada = false;
@@ -177,16 +187,15 @@
       $('hud-mensagem').textContent = `Subiu para o nível ${estadoAventura.nivel}! Habilidade especial desbloqueada.`;
       salvarAventura();
     }
-    saltoDecorrido = Math.max(0, saltoDecorrido - dt / 1000);
-    ataqueAnimacao = Math.max(0, ataqueAnimacao - dt / 1000);
-    if (estadoAventura.cooldown > .36) ataqueAnimacao = .2;
+    saltoDecorrido = Math.max(0, saltoDecorrido - dt);
     const alturaSalto = saltoDecorrido > 0 ? Math.sin((.55 - saltoDecorrido) / .55 * Math.PI) * .8 : 0;
     renderizador.desenhar(estadoAventura, {
-      agora, salto: alturaSalto, ataque: ataqueAnimacao,
-      deltaSegundos: dt / 1000, anguloHeroi
+      salto: alturaSalto, deltaSegundos: dt, anguloHeroi, correndo,
+      movendo: Math.hypot(movimentoX, movimentoZ) > .0001,
+      velocidade: Math.hypot(movimentoX, movimentoZ) / Math.max(dt, .001)
     });
     atualizaHud();
-    salvarDecorrido += dt;
+    salvarDecorrido += dtMs;
     if (salvarDecorrido > 5000) { salvarDecorrido = 0; salvarAventura(); }
     if (estadoAventura.inimigosDerrotados >= 3 && !$('hud-missao').dataset.concluida) {
       $('hud-missao').dataset.concluida = 'sim';

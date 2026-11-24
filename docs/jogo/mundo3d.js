@@ -182,71 +182,166 @@
       else if (classe === 'Assassino') link(arms[0], [0, -.45, -.1], [-.06, -.96, -.2], .045, mat.iron);
       const shadow = new T.Mesh(new T.CircleGeometry(.46, 28), new T.MeshBasicMaterial({ color: 0x07080b, transparent: true, opacity: .38, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = .02; root.add(shadow);
       const footRing = marker(root, .58, 0xb59661);
-      root.userData.parts = { torso, head, cape, arms, weapon, footRing, shadow };
+      root.userData.parts = { torso, head, cape, arms, weapon, footRing, shadow, legs: [root.userData['perna-1'], root.userData.perna1] };
       return root;
     }
     function criarModeloInimigo(tipo) {
       const root = new T.Group(); scene.add(root); const body = rootScene(root, [0, 0, 0]);
+      let attackWeapon = null; const bodyParts = [];
       const hide = new T.MeshStandardMaterial({ color: tipo === 'goblin' ? 0x40513a : tipo === 'lobo' ? 0x4b5058 : 0xa3a08e, roughness: .92 });
       if (tipo === 'lobo') {
         orb(body, 0, .65, 0, .55, .43, .84, hide); orb(body, 0, .83, -.57, .4, .35, .4, hide); mesh(coneGeo, hide, body, [0, .78, -.87], [.21, .42, .21], false).rotation.x = -Math.PI / 2;
-        for (const x of [-.16, .16]) orb(body, x, .91, -.82, .045, .05, .035, mat.eye);
-        for (const [x, z] of [[-.34,-.37],[.34,-.37],[-.34,.4],[.34,.4]]) cyl(body, x, .28, z, .105, .46, .11, hide, x * .5);
+        for (const x of [-.16, .16]) bodyParts.push(orb(body, x, .91, -.82, .045, .05, .035, mat.eye));
+        for (const [x, z] of [[-.34,-.37],[.34,-.37],[-.34,.4],[.34,.4]]) bodyParts.push(cyl(body, x, .28, z, .105, .46, .11, hide, x * .5));
       } else {
         // Criatura humanoide curvada: crânio encajado, clavículas, placas dorsales y cuernos.
         const bone = tipo === 'goblin' ? hide : mat.iron;
         const spine = cyl(body, 0, .9, .1, .17, .8, .17, bone, -.18); spine.rotation.z = -.15;
         orb(body, 0, 1.46, -.05, .3, .31, .27, bone);
-        const eye = orb(body, -.105, 1.48, -.29, .062, .07, .035, mat.eye); const eye2 = orb(body, .105, 1.48, -.29, .062, .07, .035, mat.eye);
-        for (const side of [-1, 1]) { const horn = mesh(coneGeo, bone, body, [side * .23, 1.74, -.02], [.12, .39, .12]); horn.rotation.z = side * .42; orb(body, side * .37, 1.22, 0, .26, .22, .28, bone); cyl(body, side * .34, .76, -.03, .11, .56, .12, bone, side * .18); cyl(body, side * .15, .19, .05, .15, .36, .16, bone); }
+        const eye = orb(body, -.105, 1.48, -.29, .062, .07, .035, mat.eye); const eye2 = orb(body, .105, 1.48, -.29, .062, .07, .035, mat.eye); bodyParts.push(eye, eye2);
+        for (const side of [-1, 1]) { const horn = mesh(coneGeo, bone, body, [side * .23, 1.74, -.02], [.12, .39, .12]); horn.rotation.z = side * .42; orb(body, side * .37, 1.22, 0, .26, .22, .28, bone); const arm = cyl(body, side * .34, .76, -.03, .11, .56, .12, bone, side * .18); const leg = cyl(body, side * .15, .19, .05, .15, .36, .16, bone); bodyParts.push(arm, leg); }
         // arma colosal levantada: un asta irregular y cabeza ferrada.
-        link(body, [.55, .45, -.15], [.72, 1.3, -.22], .075, mat.wood); box(body, .76, 1.36, -.22, .2, .67, .19, mat.iron, -.18); link(body, [.58, .52, -.15], [.7, .77, -.18], .1, mat.leather);
-        if (tipo === 'goblin') { const blade = mesh(coneGeo, mat.iron, body, [.79, 1.75, -.22], [.17, .35, .17]); blade.rotation.z = Math.PI; root.userData.blade = blade; }
+        link(body, [.55, .45, -.15], [.72, 1.3, -.22], .075, mat.wood); attackWeapon = box(body, .76, 1.36, -.22, .2, .67, .19, mat.iron, -.18); link(body, [.58, .52, -.15], [.7, .77, -.18], .1, mat.leather);
+        if (tipo === 'goblin') { const blade = mesh(coneGeo, mat.iron, body, [.79, 1.75, -.22], [.17, .35, .17]); blade.rotation.z = Math.PI; attackWeapon = blade; }
         root.userData.eyes = [eye, eye2];
       }
       const ring = marker(root, .53, 0x9f231e);
       const bar = new T.Group(); bar.position.set(0, tipo === 'lobo' ? 1.5 : 2.08, 0); root.add(bar);
       const back = new T.Mesh(new T.PlaneGeometry(1.18, .11), new T.MeshBasicMaterial({ color: 0x190b0b, side: T.DoubleSide })); bar.add(back);
       const fill = new T.Mesh(new T.PlaneGeometry(1.12, .065), new T.MeshBasicMaterial({ color: 0xc93428, side: T.DoubleSide })); fill.position.z = .01; bar.add(fill);
+      // Materiais próprios permitem o flash do acerto sem alterar outros modelos.
+      const emissivos = [];
+      root.traverse((obj) => { if (!obj.isMesh || !obj.material.isMeshStandardMaterial) return; obj.material = obj.material.clone(); emissivos.push({ mesh: obj, material: obj.material, cor: obj.material.emissive.clone(), intensidade: obj.material.emissiveIntensity }); });
+      root.userData.parts = { body, eyes: root.userData.eyes || [], weapon: attackWeapon, ring, legs: bodyParts };
+      root.userData.emissivos = emissivos;
       root.userData.health = { bar, fill, eyes: root.userData.eyes || [], ring, type: tipo }; return root;
     }
     let hero = criarModeloHeroi('Guerreiro'); let heroClass = 'Guerreiro';
     const enemies = new Map();
+    const inimigosAnimacao = new Map();
+    const animHeroi = { tempo: 0, fasePasso: 0, ataque: 1, duracaoAtaque: .48, correndo: false, movimento: 0 };
+    const slash = mesh(new T.TorusGeometry(.82, .035, 6, 28, Math.PI * .88), new T.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0, depthWrite: false, side: T.DoubleSide }), hero, [.43, 1.08, -.82]);
+    slash.rotation.set(.15, -.22, -.4); slash.visible = false; slash.renderOrder = 3;
     function moverCamera(dx, dy, zoom = 0) { controls.yaw += dx * .005; controls.pitch = Math.max(.12, Math.min(.9, controls.pitch - dy * .004)); controls.distance = Math.max(4.5, Math.min(14, controls.distance + zoom)); }
     function orientarMovimento(dx, dz) { const c = Math.cos(controls.yaw), s = Math.sin(controls.yaw); return { dx: dx * c + dz * s, dz: -dx * s + dz * c }; }
+    const suave = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+    const aproximar = (atual, alvo, dt, velocidade = 14) => atual + (alvo - atual) * (1 - Math.exp(-velocidade * dt));
+    function dispararAnimacaoAtaqueHeroi() {
+      if (animHeroi.ataque < animHeroi.duracaoAtaque) return false;
+      animHeroi.ataque = 0; return true;
+    }
+    function dispararDanoInimigo(id, direcaoX, direcaoZ, dano = 1) {
+      const anim = inimigosAnimacao.get(id); if (!anim) return;
+      anim.recuoX = Math.max(-.42, Math.min(.42, anim.recuoX + direcaoX * .24));
+      anim.recuoZ = Math.max(-.42, Math.min(.42, anim.recuoZ + direcaoZ * .24));
+      anim.flash = .13; anim.tremor = .2; anim.postura += dano;
+      if (anim.postura >= 3) { anim.atordoado = .42; anim.postura = 0; }
+    }
+    function atualizarAnimacaoHeroi(dt, estadoHeroi) {
+      const parts = hero.userData.parts;
+      animHeroi.tempo += dt;
+      animHeroi.ataque = Math.min(animHeroi.duracaoAtaque, animHeroi.ataque + dt);
+      const atacando = animHeroi.ataque < animHeroi.duracaoAtaque;
+      const movimentoDesejado = estadoHeroi.movendo ? (estadoHeroi.correndo ? 1 : .58) : 0;
+      animHeroi.movimento = aproximar(animHeroi.movimento, atacando ? 0 : movimentoDesejado, dt, 11);
+      animHeroi.correndo = estadoHeroi.correndo;
+      const velocidadePasso = animHeroi.correndo ? 11.2 : 7.2;
+      animHeroi.fasePasso += dt * velocidadePasso;
+      const ciclo = Math.sin(animHeroi.fasePasso);
+      const caminhada = animHeroi.movimento;
+      const passo = ciclo * caminhada;
+      const respiracao = Math.sin(animHeroi.tempo * 1.7);
+      const balancoArma = Math.sin(animHeroi.tempo * 1.25) * .035;
+      const pesoCorrida = animHeroi.correndo ? caminhada : 0;
+      const fase = animHeroi.ataque / animHeroi.duracaoAtaque;
+      let golpeBracoX = 0, golpeBracoZ = 0, golpeArmaZ = 0, giroTronco = 0, avancar = 0;
+      if (atacando) {
+        // Preparação .00-.22, corte .22-.62 e recuperação .62-1.00.
+        if (fase < .22) { const t = suave(fase / .22); golpeBracoX = -.78 * t; golpeBracoZ = -.62 * t; giroTronco = -.2 * t; }
+        else if (fase < .62) { const t = suave((fase - .22) / .4); golpeBracoX = -.78 + 1.95 * t; golpeBracoZ = -.62 + 1.18 * t; golpeArmaZ = -.15 + .92 * t; giroTronco = -.2 + .54 * t; avancar = Math.sin(Math.PI * (fase - .22) / .4) * .2; }
+        else { const t = suave((fase - .62) / .38); golpeBracoX = 1.17 * (1 - t); golpeBracoZ = .56 * (1 - t); golpeArmaZ = .77 * (1 - t); giroTronco = .34 * (1 - t); }
+      }
+      parts.legs[0].rotation.x = aproximar(parts.legs[0].rotation.x, passo * .68, dt);
+      parts.legs[1].rotation.x = aproximar(parts.legs[1].rotation.x, -passo * .68, dt);
+      parts.arms[0].rotation.x = aproximar(parts.arms[0].rotation.x, -passo * .34 + golpeBracoX * .12, dt);
+      parts.arms[1].rotation.x = aproximar(parts.arms[1].rotation.x, passo * .32 + balancoArma + golpeBracoX, dt, 18);
+      parts.arms[0].rotation.z = aproximar(parts.arms[0].rotation.z, 0, dt);
+      parts.arms[1].rotation.z = aproximar(parts.arms[1].rotation.z, golpeBracoZ, dt, 18);
+      parts.weapon.rotation.z = aproximar(parts.weapon.rotation.z, golpeArmaZ + balancoArma, dt, 20);
+      parts.torso.rotation.x = aproximar(parts.torso.rotation.x, -.025 - pesoCorrida * .09 + (atacando ? -.06 * Math.sin(Math.PI * fase) : 0), dt, 9);
+      parts.torso.rotation.y = aproximar(parts.torso.rotation.y, giroTronco, dt, 16);
+      parts.torso.position.y = 0;
+      parts.torso.scale.y = 1 + respiracao * .008;
+      parts.head.rotation.x = aproximar(parts.head.rotation.x, -.018 + respiracao * .012, dt, 7);
+      parts.cape.rotation.x = aproximar(parts.cape.rotation.x, -.045 + Math.abs(passo) * .16 + Math.sin(animHeroi.tempo * 2.3) * .035, dt, 5);
+      parts.cape.rotation.z = aproximar(parts.cape.rotation.z, Math.sin(animHeroi.fasePasso) * caminhada * .12 + Math.sin(animHeroi.tempo * 1.4) * .025, dt, 5);
+      hero.position.y = estadoHeroi.salto + Math.abs(ciclo) * caminhada * (animHeroi.correndo ? .055 : .025);
+      hero.position.x = estadoHeroi.x; hero.position.z = estadoHeroi.z; hero.rotation.y = estadoHeroi.angulo;
+      if (avancar) hero.translateZ(-avancar);
+      slash.visible = atacando && fase > .24 && fase < .67;
+      slash.material.opacity = slash.visible ? Math.sin(Math.PI * suave((fase - .24) / .43)) * .68 : 0;
+      slash.rotation.z = -.65 + (fase - .24) * 3.2;
+      slash.rotation.y = -.35 + (fase - .24) * 2.1;
+      parts.footRing.material.opacity = .36 + Math.sin(animHeroi.tempo * 2.5) * .045;
+    }
+    function atualizarAnimacaoInimigo(dt, inimigo, distancia, angulo) {
+      if (!enemies.has(inimigo.id)) {
+        const model = criarModeloInimigo(inimigo.tipo); enemies.set(inimigo.id, model);
+        inimigosAnimacao.set(inimigo.id, { tempo: Math.random() * 4, flash: 0, tremor: 0, recuoX: 0, recuoZ: 0, postura: 0, atordoado: 0, telegraph: -.1 });
+      }
+      const group = enemies.get(inimigo.id); const anim = inimigosAnimacao.get(inimigo.id); const parts = group.userData.parts;
+      anim.tempo += dt; anim.flash = Math.max(0, anim.flash - dt); anim.tremor = Math.max(0, anim.tremor - dt); anim.atordoado = Math.max(0, anim.atordoado - dt);
+      anim.recuoX = aproximar(anim.recuoX, 0, dt, 7); anim.recuoZ = aproximar(anim.recuoZ, 0, dt, 7);
+      const alertando = distancia < 2.9;
+      if (alertando) { if (anim.telegraph < 0) anim.telegraph = .72; else { anim.telegraph -= dt; if (anim.telegraph <= 0) anim.telegraph = .9; } }
+      else anim.telegraph = -.1;
+      const carga = alertando ? 1 - Math.max(0, anim.telegraph) / .9 : 0;
+      const aviso = alertando && (anim.telegraph < .36 || distancia < 2.25);
+      group.visible = inimigo.vida > 0; if (!group.visible) return;
+      group.position.set(Math.max(-44, Math.min(44, inimigo.x + anim.recuoX)), 0, Math.max(-44, Math.min(44, inimigo.z + anim.recuoZ))); group.rotation.y = angulo;
+      parts.body.position.set(0, 0, 0);
+      const treme = anim.tremor > 0 ? Math.sin(anim.tempo * 72) * anim.tremor * .09 : 0;
+      parts.body.rotation.x = (inimigo.tipo === 'lobo' ? 0 : .08) - anim.atordoado * .85 + (anim.flash > 0 ? -.22 : 0) + (aviso ? -.1 * carga : 0);
+      parts.body.rotation.z = treme + (anim.atordoado > 0 ? Math.sin(anim.tempo * 34) * .06 : 0);
+      parts.legs.forEach((limb, i) => { if (limb.geometry.type === 'CylinderGeometry') limb.rotation.x = Math.sin(anim.tempo * 8 + i * Math.PI) * .2 * (aviso ? .3 : 1); });
+      parts.ring.material.color.set(aviso ? 0xff2914 : alertando ? 0xbd5b24 : 0x79513f);
+      parts.ring.material.opacity = aviso ? .85 + .12 * Math.sin(anim.tempo * 22) : alertando ? .58 : .4;
+      if (parts.weapon) parts.weapon.rotation.z = aviso ? -.24 - .24 * carga : 0;
+      for (const eye of parts.eyes) if (eye.material.isMeshStandardMaterial) eye.material.emissiveIntensity = aviso ? 3.8 : alertando ? 1.7 : .65;
+      for (const item of group.userData.emissivos) {
+        const hit = anim.flash > 0 ? 1 - anim.flash / .13 : 0;
+        item.material.emissive.copy(item.cor).lerp(new T.Color(0xff604b), hit * .9);
+        item.material.emissiveIntensity = item.intensidade + (anim.flash > 0 ? 2.8 * (1 - hit) : 0);
+      }
+      if (parts.weapon?.material.isMeshStandardMaterial && aviso) { parts.weapon.material.emissive.set(0xff3812); parts.weapon.material.emissiveIntensity = 1.8 + Math.sin(anim.tempo * 18) * .55; }
+      if (anim.flash > 0) for (const eye of parts.eyes) eye.material.emissiveIntensity = 4.5;
+      group.userData.health.bar.quaternion.copy(camera.quaternion);
+    }
     function desenhar(estado, quadro = {}) {
-      const { agora = performance.now(), salto = 0, ataque = 0, deltaSegundos = 0, anguloHeroi = 0 } = quadro;
+      const { deltaSegundos = 0, correndo = false, movendo = false, velocidade = 0, salto = 0, anguloHeroi = 0 } = quadro;
       const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
-      if (estado.classe !== heroClass) { scene.remove(hero); hero = criarModeloHeroi(estado.classe); heroClass = estado.classe; }
+      if (estado.classe !== heroClass) { scene.remove(hero); hero = criarModeloHeroi(estado.classe); scene.remove(slash); hero.add(slash); heroClass = estado.classe; }
       const dt = Math.min(.1, Math.max(0, deltaSegundos)); const target = v(estado.x, 1.13 + salto, estado.z); controls.target.lerp(target, 1 - Math.exp(-9 * dt));
       const horizontal = controls.distance * Math.cos(controls.pitch); camera.position.set(controls.target.x + Math.sin(controls.yaw) * horizontal, controls.target.y + controls.distance * Math.sin(controls.pitch), controls.target.z + Math.cos(controls.yaw) * horizontal); camera.lookAt(controls.target);
-      const moving = Math.hypot(hero.position.x - estado.x, hero.position.z - estado.z) > .01;
-      hero.position.set(estado.x, salto, estado.z); hero.rotation.y = anguloHeroi;
-      const parts = hero.userData.parts; const stride = moving ? Math.sin(agora * .012) * .5 : 0;
-      hero.userData['perna-1'].rotation.x = stride; hero.userData['perna1'].rotation.x = -stride;
-      parts.arms[0].rotation.x = -stride * .55; parts.arms[1].rotation.x = stride * .55 - Math.max(0, ataque) * 4.2;
-      parts.weapon.rotation.x = -Math.max(0, ataque) * 1.7; parts.cape.rotation.x = -.06 + Math.sin(agora * .003) * .045 + Math.abs(stride) * .08;
-      parts.cape.rotation.z = Math.sin(agora * .004) * .035; parts.footRing.material.opacity = .36 + Math.sin(agora * .004) * .08;
+      atualizarAnimacaoHeroi(dt, { x: estado.x, z: estado.z, angulo: anguloHeroi, salto, movendo: movendo && velocidade > .15, correndo });
       for (const e of estado.inimigos) {
-        if (!enemies.has(e.id)) enemies.set(e.id, criarModeloInimigo(e.tipo));
-        const group = enemies.get(e.id); group.visible = e.vida > 0; if (!group.visible) continue;
-        group.position.set(e.x, 0, e.z); group.rotation.y = Math.atan2(estado.x - e.x, -(estado.z - e.z));
+        const distancia = Math.hypot(e.x - estado.x, e.z - estado.z); const angulo = Math.atan2(estado.x - e.x, -(estado.z - e.z));
+        atualizarAnimacaoInimigo(dt, e, distancia, angulo);
+        if (e.vida <= 0) continue;
+        const group = enemies.get(e.id);
         const health = group.userData.health; health.fill.scale.x = Math.max(.001, e.vida / e.maxVida); health.fill.position.x = -(1 - e.vida / e.maxVida) * .56;
-        health.bar.quaternion.copy(camera.quaternion);
-        const alert = Math.hypot(e.x - estado.x, e.z - estado.z) < 2.35; health.ring.material.color.set(alert ? 0xff3215 : 0x79513f); health.ring.material.opacity = alert ? .9 : .4;
-        if (health.eyes.length) for (const eye of health.eyes) eye.material.emissiveIntensity = alert ? 3 : .65;
-        if (group.userData.blade) { group.userData.blade.material = alert ? mat.ember : mat.iron; group.userData.blade.scale.y = alert ? .47 : .35; }
       }
-      scenery.flickers.forEach(({ flame, light, phase }) => { const pulse = .82 + .18 * Math.sin(agora * .012 + phase); flame.scale.y = pulse; light.intensity = 26 + 12 * pulse; });
-      scenery.fireLight.intensity = 46 + 12 * Math.sin(agora * .009);
-      for (const fire of scenery.bonfire.children) if (fire.userData.phase !== undefined) { fire.scale.y = .75 + .35 * Math.sin(agora * .015 + fire.userData.phase); fire.rotation.z = Math.sin(agora * .011 + fire.userData.phase) * .12; }
-      for (let i = 0; i < 24; i++) { const t = (agora * .001 + i * .173) % 1; scenery.sparkPositions[i * 3] = Math.sin(i * 12.3 + agora * .001) * .36; scenery.sparkPositions[i * 3 + 1] = .32 + t * 1.9; scenery.sparkPositions[i * 3 + 2] = Math.cos(i * 8.8 + agora * .001) * .34; }
+      const tempo = inimigosAnimacao.get(estado.inimigos[0]?.id)?.tempo || 0;
+      scenery.flickers.forEach(({ flame, light, phase }) => { const pulse = .82 + .18 * Math.sin(tempo * 1.5 + phase); flame.scale.y = pulse; light.intensity = 26 + 12 * pulse; });
+      scenery.fireLight.intensity = 46 + 12 * Math.sin(tempo * 1.1);
+      for (const fire of scenery.bonfire.children) if (fire.userData.phase !== undefined) { fire.scale.y = .75 + .35 * Math.sin(tempo * 1.8 + fire.userData.phase); fire.rotation.z = Math.sin(tempo * 1.3 + fire.userData.phase) * .12; }
+      for (let i = 0; i < 24; i++) { const t = (tempo * .35 + i * .173) % 1; scenery.sparkPositions[i * 3] = Math.sin(i * 12.3 + tempo * .35) * .36; scenery.sparkPositions[i * 3 + 1] = .32 + t * 1.9; scenery.sparkPositions[i * 3 + 2] = Math.cos(i * 8.8 + tempo * .35) * .34; }
       scenery.sparks.attributes.position.needsUpdate = true;
       const chestNear = !estado.bausAberto && Math.hypot(estado.x - 18, estado.z - 18) < 4.5;
-      scenery.chest.visible = !estado.bausAberto; scenery.aura.intensity = chestNear ? 8 + Math.sin(agora * .006) * 2 : .5;
+      scenery.chest.visible = !estado.bausAberto; scenery.aura.intensity = chestNear ? 8 + Math.sin(tempo * 1.8) * 2 : .5;
       renderer.render(scene, camera);
     }
-    return { desenhar, moverCamera, orientarMovimento };
+    return { desenhar, moverCamera, orientarMovimento, dispararAnimacaoAtaqueHeroi, dispararDanoInimigo };
   }
   raiz.Mundo3D = { iniciar, criarTexturasProcedurais };
 })(window);
