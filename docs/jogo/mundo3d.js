@@ -354,6 +354,12 @@
       const pathMat = new T.MeshStandardMaterial({ ...textures.chao, color: 0xb2a99a, roughness: .93, bumpScale: .12 });
       pathMat.userData.semColisao = true; // Lajes do caminho são superfície caminhável, não obstáculos.
       for (let z = -42; z < 34; z += 2.35) for (let x of [-1.1, 1.1]) { const p = box(world, x + (Math.random() - .5) * .22, -.035, z + (Math.random() - .5) * .18, 1.02 + Math.random() * .3, .13, 1.9, pathMat, (Math.random() - .5) * .06); p.material = pathMat; }
+      // Continuação visual da estrada pelo portão da vila até o pátio do castelo.
+      for (let z = -43.5; z >= -57; z -= 2.1) for (const x of [-1.15, 1.15]) {
+        const laje = box(world, x + (Math.random() - .5) * .16, -.035, z + (Math.random() - .5) * .14,
+          1.15 + Math.random() * .28, .13, 1.8, pathMat, (Math.random() - .5) * .04, false);
+        laje.material = pathMat;
+      }
       // Ruínas com blocos irregulares, vãos e arcos sobre a antiga rua.
       for (const side of [-1, 1]) {
         for (let z = -26; z <= 29; z += 5.5) {
@@ -408,8 +414,160 @@
       return { world, flickers, fireLight, sparkPositions, sparks, chest, lid, aura, bonfire, colisorFogueira, colisorBau };
     }
 
+    // Segmentos sobrepostos mantêm a colisão contínua apesar da margem de folga .78.
+    function criarTrechoMuralha(grupo, eixo, fixo, inicio, fim, material = mat.stone, espaco = 2.55) {
+      const larguraVisual = 3.45;
+      for (let centro = inicio; centro <= fim; centro += espaco) {
+        // Pequenas variações no alinhamento e no topo quebram a silhueta de muralha nova.
+        const desgaste = Math.sin(centro * .19 + fixo * .11);
+        const x = eixo === 'x' ? centro : fixo + desgaste * .13;
+        const z = eixo === 'x' ? fixo + desgaste * .13 : centro;
+        const altura = 6.0 + desgaste * .34;
+        box(grupo, x, altura * .5, z,
+          eixo === 'x' ? larguraVisual : 1.45, altura,
+          eixo === 'x' ? 1.45 : larguraVisual, material);
+        // Passadiço e ameias ficam acima da altura de colisão do personagem.
+        const passadico = box(grupo, x, 6.2, z, eixo === 'x' ? larguraVisual : 1.8, .36,
+          eixo === 'x' ? 1.8 : larguraVisual, material, 0, false);
+        passadico.castShadow = false;
+      }
+      for (let centro = inicio + .3; centro <= fim; centro += 2.05) {
+        const desgaste = Math.sin(centro * .23 + fixo * .08);
+        const x = eixo === 'x' ? centro : fixo + desgaste * .13;
+        const z = eixo === 'x' ? fixo + desgaste * .13 : centro;
+        const ameia = box(grupo, x, 6.82 + desgaste * .14, z, eixo === 'x' ? 1.05 : 1.38, .92,
+          eixo === 'x' ? 1.38 : 1.05, material, 0, false);
+        ameia.castShadow = false;
+      }
+    }
+
+    function criarTorreMuralha(grupo, x, z, material, escala = 1) {
+      const base = box(grupo, x, 3.3 * escala, z, 5.1 * escala, 6.6 * escala, 5.1 * escala, material);
+      // Torre octogonal curta, ameias e uma lanterna morna no topo.
+      const merlonBase = cyl(grupo, x, 6.55 * escala, z, 2.15 * escala, 1.1 * escala, 2.15 * escala, material);
+      merlonBase.castShadow = false;
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4;
+        box(grupo, x + Math.cos(a) * 1.65 * escala, 7.35 * escala, z + Math.sin(a) * 1.65 * escala,
+          .92 * escala, .78 * escala, .92 * escala, material, a, false).castShadow = false;
+      }
+      const luz = new T.PointLight(0xff9a55, 7.5, 9, 2);
+      luz.position.set(x, 7.1 * escala, z); luz.castShadow = false; grupo.add(luz);
+      return { base, luz };
+    }
+
+    // Fecha o perímetro da vila com uma abertura larga alinhada à estrada em Z negativo.
+    function criarMuralhaVila(cena, texturas) {
+      const grupo = new T.Group(); grupo.name = 'muralha-da-vila';
+      grupo.userData.registrarSolidos = true; cena.add(grupo);
+      const pedra = new T.MeshStandardMaterial({ ...texturas.muro, color: 0x898984, roughness: .97, bumpScale: .16 });
+      // A textura é compartilhada com o restante das ruínas; os segmentos físicos derivam dela.
+      // Frente norte: dois panos deixam o vão central de 10,8 unidades livre.
+      criarTrechoMuralha(grupo, 'x', -37.5, -40, -5.5, pedra);
+      criarTrechoMuralha(grupo, 'x', -37.5, 5.5, 40, pedra);
+      // Laterais e fundo fecham o recinto; a folga entre segmentos fica menor que o raio corporal.
+      criarTrechoMuralha(grupo, 'z', -40, -37.5, 37.5, pedra);
+      criarTrechoMuralha(grupo, 'z', 40, -37.5, 37.5, pedra);
+      criarTrechoMuralha(grupo, 'x', 37.5, -40, 40, pedra);
+      for (const [x, z, escala] of [[-40,-37.5,1.05],[40,-37.5,1.05],[-40,37.5,1],[40,37.5,1]]) {
+        criarTorreMuralha(grupo, x, z, pedra, escala);
+      }
+      // Ombreiras do portão e torreões laterais, sem fechar a passagem da estrada.
+      for (const x of [-5.5, 5.5]) {
+        box(grupo, x, 2.9, -37.5, 2.5, 5.8, 2.1, pedra);
+        const capitel = box(grupo, x, 6.05, -37.5, 3.05, .38, 2.3, pedra, 0, false); capitel.castShadow = false;
+        const brasa = new T.Mesh(coneGeo, mat.ember); brasa.position.set(x, 5.9, -37.5); brasa.scale.set(.2, .48, .2); brasa.castShadow = false; grupo.add(brasa);
+        const luz = new T.PointLight(0xff7433, 19, 10, 2); luz.position.set(x, 6.2, -37.5); grupo.add(luz);
+      }
+      // Cunhas altas desenham o arco do portão; são deliberadamente sem colisor.
+      for (let i = 0; i <= 12; i++) {
+        const angulo = Math.PI * i / 12;
+        const cunha = mesh(boxGeo, pedra, grupo, [Math.cos(angulo) * 5.2, 5.05 + Math.sin(angulo) * 1.55, -37.5], [1.05, .76, 1.5], true, false);
+        cunha.rotation.z = angulo - Math.PI / 2;
+        cunha.castShadow = false;
+      }
+      // Vigas e bandas escuras dão variação à alvenaria sem criar saliências físicas.
+      for (const lado of [-1, 1]) {
+        box(grupo, lado * 23, .72, -37.5, 29, .28, 1.55, mat.wood, 0, false);
+        box(grupo, lado * 23, 5.3, -37.5, 29, .22, 1.54, mat.wood, 0, false);
+      }
+      return { grupo, pedra, portao: { x: 0, z: -37.5, largura: 10.4 } };
+    }
+
+    function criarTorreCastelo(grupo, x, z, altura, matPedra, matTelhado) {
+      // Base larga e sólida; a cobertura e as ameias ficam bem acima do plano de colisão.
+      box(grupo, x, altura * .43, z, 4.8, altura * .86, 4.8, matPedra);
+      box(grupo, x, altura * .9, z, 5.35, .7, 5.35, matPedra, 0, false);
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4;
+        box(grupo, x + Math.cos(a) * 1.95, altura + .28, z + Math.sin(a) * 1.95,
+          1.0, .92, 1.0, matPedra, a, false);
+      }
+      const telhado = mesh(new T.ConeGeometry(1, 1, 8), matTelhado, grupo,
+        [x, altura + 2.15, z], [3.25, 4.3, 3.25], false, false);
+      telhado.rotation.y = Math.PI / 8;
+      const agulha = mesh(coneGeo, matTelhado, grupo, [x, altura + 4.55, z], [.16, 1.3, .16], false, false);
+      return { telhado, agulha };
+    }
+
+    // Fortaleza além do caminho; a fachada deixa um portal central amplo e caminhável.
+    function criarCasteloFimDaEstrada(cena, texturas) {
+      const grupo = new T.Group(); grupo.name = 'castelo-no-fim-da-estrada';
+      grupo.userData.registrarSolidos = true; cena.add(grupo);
+      const pedra = new T.MeshStandardMaterial({ ...texturas.muro, color: 0x777b80, roughness: .96, bumpScale: .18 });
+      const telhado = new T.MeshStandardMaterial({ color: 0x211e25, roughness: .9, metalness: .12 });
+      const ferro = new T.MeshStandardMaterial({ ...texturas.metal, color: 0x55585c, metalness: .72, roughness: .42 });
+      const fresta = new T.MeshStandardMaterial({ color: 0x8a3820, emissive: 0xff4e1e, emissiveIntensity: 1.05, roughness: .6 });
+      const frenteZ = -42.2;
+      // Panos frontais laterais: o espaço entre x=-4,4 e x=4,4 fica sem porta ou colisor.
+      for (const lado of [-1, 1]) {
+        box(grupo, lado * 8.25, 3.25, frenteZ, 7.7, 6.5, 1.55, pedra);
+        // Contraforte vertical e faixa metálica no encontro com o portal.
+        box(grupo, lado * 4.75, 3.1, frenteZ - .08, .6, 6.2, 1.9, pedra);
+        box(grupo, lado * 4.75, 2.9, frenteZ - 1.08, .13, 2.2, .08, ferro, 0, false);
+        const frestaMalha = box(grupo, lado * 7.9, 5.15, frenteZ - .81, .24, 1.28, .08, fresta, 0, false);
+        frestaMalha.castShadow = false;
+      }
+      // Torreões frontais se erguem nos ombros da entrada, longe da faixa de circulação.
+      criarTorreCastelo(grupo, -9.2, -43.2, 9.2, pedra, telhado);
+      criarTorreCastelo(grupo, 9.2, -43.2, 9.2, pedra, telhado);
+      criarTorreCastelo(grupo, -10.8, -55.5, 11.2, pedra, telhado);
+      criarTorreCastelo(grupo, 10.8, -55.5, 11.2, pedra, telhado);
+      // Salão central elevado (visual apenas) e torre de menagem ao fundo.
+      box(grupo, 0, 9.7, -51.5, 13.8, 8.2, 14.2, pedra, 0, false);
+      box(grupo, 0, 13.9, -51.5, 14.8, .65, 15.1, pedra, 0, false);
+      box(grupo, 0, 12.8, -44.5, 5.5, 14.6, 5.5, pedra, 0, false);
+      mesh(new T.ConeGeometry(1, 1, 8), telhado, grupo, [0, 21.1, -44.5], [4.1, 4.8, 4.1], false, false).rotation.y = Math.PI / 8;
+      // Flancos laterais e parede posterior protegem as bases, mantendo o portal dianteiro livre.
+      for (const lado of [-1, 1]) {
+        for (let z = -46.2; z >= -55.5; z -= 2.65) box(grupo, lado * 11.7, 3.6, z, 1.55, 7.2, 3.55, pedra);
+      }
+      for (let x = -10.8; x <= 10.8; x += 2.65) box(grupo, x, 3.6, -57.2, 3.55, 7.2, 1.55, pedra);
+      // Arco gótico alto: malhas decorativas, sem colisor horizontal sobre a passagem.
+      for (let i = 0; i <= 12; i++) {
+        const angulo = Math.PI * i / 12;
+        const cunha = mesh(boxGeo, pedra, grupo, [Math.cos(angulo) * 4.35, 6.15 + Math.sin(angulo) * 1.65, frenteZ], [1.0, .78, 1.65], true, false);
+        cunha.rotation.z = angulo - Math.PI / 2;
+      }
+      // Recesso escuro, sem geometria de bloqueio; o jogador atravessa o vão de 8,7 unidades.
+      const portal = new T.Mesh(new T.PlaneGeometry(8.55, 5.3), new T.MeshBasicMaterial({ color: 0x11131a, transparent: true, opacity: .72, depthWrite: false }));
+      portal.position.set(0, 2.9, frenteZ - .28); portal.castShadow = false; grupo.add(portal);
+      // Tochas no portal e janelas altas dão escala ao destino mesmo através da neblina.
+      const luzes = [];
+      for (const x of [-3.4, 3.4]) {
+        const braseiro = new T.Mesh(coneGeo, mat.ember); braseiro.position.set(x, 4.35, frenteZ - .6); braseiro.scale.set(.2, .58, .2); braseiro.castShadow = false; grupo.add(braseiro);
+        const luz = new T.PointLight(0xff7435, 24, 13, 2); luz.position.set(x, 4.5, frenteZ - 1); luz.castShadow = false; grupo.add(luz); luzes.push(luz);
+      }
+      for (const [x, z, y] of [[-9.2,-43.2,7.2],[9.2,-43.2,7.2],[0,-44.5,16.2]]) {
+        box(grupo, x, y, z - 2.43, .32, 1.45, .08, fresta, 0, false).castShadow = false;
+      }
+      return { grupo, portal, luzes, entrada: { x: 0, z: frenteZ, largura: 8.7 } };
+    }
+
     mat.ember.userData.semColisao = true;
     const scenery = criarCenario();
+    scenery.muralha = criarMuralhaVila(scene, textures);
+    scenery.castelo = criarCasteloFimDaEstrada(scene, textures);
     scenery.montanhas = criarMontanhasHorizonte(scene, textures);
     scenery.detalhes = popularDetalhesCenario(scene, textures);
     const vento = criarParticulasVento(scene);
@@ -453,6 +611,9 @@
         const oscilacao = Math.sin(faseGeral * 1.2 + fase);
         chama.scale.y = .96 + .035 * oscilacao;
         luz.intensity = 10.5 + .7 * oscilacao;
+      }
+      for (let i = 0; i < (scenery.castelo?.luzes.length || 0); i++) {
+        scenery.castelo.luzes[i].intensity = 24 + .8 * Math.sin(faseGeral * 1.1 + i * 1.7);
       }
       // Vento inclina levemente a capa e acompanha as oscilações já presentes nas chamas.
       balancoVentoHeroi = onda * intensidade;
