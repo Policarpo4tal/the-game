@@ -14,6 +14,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -67,13 +68,17 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private PastaDeSalvamento pasta;
+    private FrameLayout raiz;
+    private View vistaTelaCheia;
+    private WebChromeClient.CustomViewCallback callbackTelaCheia;
+    private int visibilidadeOriginalBarras;
 
     @Override
     protected void onCreate(Bundle estado) {
         super.onCreate(estado);
         int cor = getColor(R.color.cor_jogo);
 
-        FrameLayout raiz = new FrameLayout(this);
+        raiz = new FrameLayout(this);
         raiz.setBackgroundColor(cor);
         web = new WebView(this);
         web.setBackgroundColor(cor);
@@ -92,6 +97,17 @@ public class MainActivity extends Activity {
         pasta = new PastaDeSalvamento(this, web);
         web.addJavascriptInterface(pasta, "AndroidSave");
         web.setWebViewClient(new Cliente());
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                mostrarTelaCheia(view, callback);
+            }
+
+            @Override
+            public void onHideCustomView() {
+                ocultarTelaCheia(true);
+            }
+        });
 
         if (estado == null || web.restoreState(estado) == null) {
             web.loadUrl(INICIO);
@@ -128,6 +144,48 @@ public class MainActivity extends Activity {
 
     private static double luminancia(int cor) {
         return (0.299 * Color.red(cor) + 0.587 * Color.green(cor) + 0.114 * Color.blue(cor)) / 255.0;
+    }
+
+    private void mostrarTelaCheia(View vista, WebChromeClient.CustomViewCallback callback) {
+        if (vistaTelaCheia != null) {
+            callback.onCustomViewHidden();
+            return;
+        }
+        vistaTelaCheia = vista;
+        callbackTelaCheia = callback;
+        visibilidadeOriginalBarras = raiz.getSystemUiVisibility();
+        raiz.addView(vistaTelaCheia, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        web.setVisibility(View.GONE);
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controle = getWindow().getInsetsController();
+            if (controle != null) {
+                controle.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controle.hide(WindowInsets.Type.systemBars());
+            }
+        } else {
+            raiz.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        }
+    }
+
+    private void ocultarTelaCheia(boolean notificarWebView) {
+        if (vistaTelaCheia == null) return;
+        raiz.removeView(vistaTelaCheia);
+        vistaTelaCheia = null;
+        web.setVisibility(View.VISIBLE);
+        if (notificarWebView && callbackTelaCheia != null) callbackTelaCheia.onCustomViewHidden();
+        callbackTelaCheia = null;
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controle = getWindow().getInsetsController();
+            if (controle != null) controle.show(WindowInsets.Type.systemBars());
+        } else {
+            raiz.setSystemUiVisibility(visibilidadeOriginalBarras);
+        }
     }
 
     private class Cliente extends WebViewClient {
@@ -196,7 +254,9 @@ public class MainActivity extends Activity {
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        if (web.canGoBack()) {
+        if (vistaTelaCheia != null) {
+            ocultarTelaCheia(true);
+        } else if (web.canGoBack()) {
             web.goBack();
         } else {
             super.onBackPressed();

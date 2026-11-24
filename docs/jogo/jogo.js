@@ -34,7 +34,37 @@
   const classes = Object.keys(Regras.CLASSES);
 
   function mostrar(tela) {
+    if (tela !== 'tela-aventura') sairTelaCheia();
     ['tela-inicio', 'tela-aventura', 'tela-jogo', 'tela-fim'].forEach((id) => { $(id).hidden = id !== tela; });
+  }
+  function sincronizarTelaCheia(ativa) {
+    document.body.classList.toggle('modo-tela-cheia', ativa);
+    const botao = $('botao-tela-cheia');
+    if (!botao) return;
+    botao.setAttribute('aria-pressed', String(ativa));
+    botao.setAttribute('aria-label', ativa ? 'Sair da tela cheia' : 'Ativar tela cheia');
+    botao.textContent = ativa ? '⛶ Sair da tela cheia' : '⛶ Tela cheia';
+  }
+  async function entrarTelaCheia() {
+    const alvo = $('tela-aventura');
+    try {
+      if (alvo.requestFullscreen) {
+        try { await alvo.requestFullscreen({ navigationUI: 'hide' }); }
+        catch (_) { await alvo.requestFullscreen(); }
+        sincronizarTelaCheia(true);
+        return;
+      }
+    } catch (_) {
+      // Alguns WebViews Android não implementam o modo imersivo do Fullscreen API.
+    }
+    sincronizarTelaCheia(true);
+  }
+  async function sairTelaCheia() {
+    const nativoAtivo = Boolean(document.fullscreenElement);
+    sincronizarTelaCheia(false);
+    if (nativoAtivo && document.exitFullscreen) {
+      try { await document.exitFullscreen(); } catch (_) { /* O fallback visual já foi removido. */ }
+    }
   }
   function atualizarProgressoSalvo() {
     $('botao-continuar').hidden = !estadoAventura || estadoAventura.acabou;
@@ -301,6 +331,14 @@
       renderizador.moverCamera(0,0,Math.sign(e.deltaY)*.7);
     },{passive:false});
   }
+  $('botao-tela-cheia').addEventListener('click', () => {
+    if (document.body.classList.contains('modo-tela-cheia')) sairTelaCheia();
+    else entrarTelaCheia();
+  });
+  document.addEventListener('fullscreenchange', () => sincronizarTelaCheia(Boolean(document.fullscreenElement)));
+  document.addEventListener('keydown', (evento) => {
+    if (evento.key === 'Escape' && document.body.classList.contains('modo-tela-cheia') && !document.fullscreenElement) sairTelaCheia();
+  });
   instalarControlesCamera();
   $('botao-jogar').addEventListener('click', () => iniciarAventura(true));
   $('botao-continuar').addEventListener('click', () => iniciarAventura(false));

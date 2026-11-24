@@ -38,6 +38,7 @@ progress { width: min(190px, 45vw); height: 14px; accent-color: #bb3430; }
 .controle { min-width: 64px; min-height: 54px; padding: 8px; border: 2px solid #ead5a2; border-radius: 16px; background: #261c17d9; color: white; font: inherit; font-size: .82rem; font-weight: 800; touch-action: none; }
 .controle-ataque { grid-column: 2; grid-row: 1 / span 2; width: 72px; height: 72px; align-self: end; border-radius: 50%; background: #a31f25ed; font-size: 1.8rem; }
 .botao-sair { position: absolute; z-index: 4; right: 10px; top: 10px; min-width: 0; min-height: 44px; padding: 7px 11px; border-color: #c49b5d; background: #211a15dd; font-size: .78rem; }
+.botao-tela-cheia { position: absolute; z-index: 4; top: 62px; right: 10px; min-width: 0; min-height: 44px; padding: 7px 11px; border-color: #c49b5d; background: #211a15dd; font-size: .78rem; }
 .falha-3d { position: absolute; z-index: 6; inset: 20% 8%; display: grid; align-content: center; gap: 12px; padding: 20px; border: 2px solid #e2bf77; border-radius: 16px; background: #211a15f2; color: #fff5dc; }
 .falha-3d[hidden] { display: none !important; }
 .status { width: 100%; display: flex; justify-content: space-between; gap: 5px; font-variant-numeric: tabular-nums; }
@@ -58,9 +59,19 @@ progress { width: min(190px, 45vw); height: 14px; accent-color: #bb3430; }
   #mundo { height: 71vh; min-height: 490px; }
   .hud-mundo { top: 7px; left: 7px; width: calc(100% - 14px); padding: 7px 9px; }
   .botao-sair { top: auto; right: 8px; bottom: 8px; }
+  .botao-tela-cheia { top: 7px; right: 7px; }
   .controles-mobile { bottom: 62px; left: 9px; right: 9px; }
   .joystick { width: 104px; height: 104px; }
 }
+.modo-tela-cheia { overflow: hidden; background: #111; }
+.modo-tela-cheia .jogo { position: fixed; inset: 0; z-index: 9999; width: 100vw; height: 100vh; height: 100dvh; margin: 0; padding: 0; display: block; }
+.modo-tela-cheia .topo,
+.modo-tela-cheia > .jogo > section:not(#tela-aventura),
+.modo-tela-cheia #painel-placar { display: none !important; }
+.modo-tela-cheia #tela-aventura { position: fixed; inset: 0; z-index: 1; width: 100vw; height: 100vh; height: 100dvh; min-height: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; box-shadow: none; }
+.modo-tela-cheia #mundo { width: 100vw; height: 100vh; height: 100dvh; min-height: 0; }
+.modo-tela-cheia .botao-tela-cheia { top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); }
+.modo-tela-cheia .botao-sair { right: max(8px, env(safe-area-inset-right)); }
 @media (max-height: 560px) and (orientation: landscape) {
   #mundo { height: 75vh; min-height: 300px; }
   .tela-mundo { min-height: 320px; }
